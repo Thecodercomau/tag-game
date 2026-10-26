@@ -13,8 +13,8 @@ describe('map definitions', () => {
       expect(spawn.y).toBeGreaterThan(PLAYER_RADIUS);
       expect(spawn.x).toBeLessThan(map.width - PLAYER_RADIUS);
       expect(spawn.y).toBeLessThan(map.height - PLAYER_RADIUS);
-      for (const wall of map.walls) {
-        expect(circleRectOverlap(spawn.x, spawn.y, PLAYER_RADIUS + 4, wall)).toBe(false);
+      for (const platform of map.platforms) {
+        expect(circleRectOverlap(spawn.x, spawn.y, PLAYER_RADIUS + 4, platform)).toBe(false);
       }
     }
   });

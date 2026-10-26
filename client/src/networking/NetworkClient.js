@@ -192,7 +192,7 @@ export class NetworkClient {
   startMatch() { return this.emit(CLIENT_EVENTS.START_MATCH, {}); }
   kick(playerId) { return this.emit(CLIENT_EVENTS.KICK_PLAYER, { playerId }); }
   chat(message) { return this.emit(CLIENT_EVENTS.SEND_CHAT, { message }); }
-  sendInput(seq, dx, dy, sprint) { return this.emit(CLIENT_EVENTS.INPUT, { seq, dx, dy, sprint }); }
+  sendInput(seq, dx, sprint, jump) { return this.emit(CLIENT_EVENTS.INPUT, { seq, dx, sprint, jump }); }
   tag(targetId) { return this.emit(CLIENT_EVENTS.TAG, targetId ? { targetId } : {}); }
   interact(targetId) { return this.emit(CLIENT_EVENTS.INTERACT, targetId ? { targetId } : {}); }
   returnToLobby() { return this.emit(CLIENT_EVENTS.RETURN_TO_LOBBY, {}); }

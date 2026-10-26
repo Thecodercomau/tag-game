@@ -6,23 +6,19 @@ function cssColor(number, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const wallColors = {
-  boundary: [30, 42, 49, 0.9],
-  tree: [44, 120, 68, 1],
-  pond: [75, 173, 220, 1],
-  building: [56, 72, 91, 1],
-  portable: [73, 93, 112, 1],
+const platformColors = {
+  ground: [36, 58, 44, 1],
+  grass: [64, 125, 71, 1],
+  stone: [104, 112, 112, 1],
+  roof: [72, 91, 111, 1],
+  slide: [236, 165, 56, 1],
+  bench: [120, 81, 53, 1],
   shop: [83, 77, 120, 1],
   kiosk: [104, 93, 139, 1],
-  neon: [54, 93, 210, 1],
-  slide: [236, 165, 56, 1],
-  swing: [219, 125, 74, 1],
-  bench: [120, 81, 53, 1],
-  playhouse: [154, 95, 75, 1],
-  sandbox: [211, 185, 116, 1],
+  neon: [49, 132, 180, 1],
   planter: [76, 132, 92, 1],
-  fountain: [91, 188, 221, 1],
-  gazebo: [126, 99, 77, 1]
+  sandbox: [211, 185, 116, 1],
+  ledge: [86, 105, 89, 1]
 };
 
 export function renderMapPreview(canvas, map, width = 240, height = 150) {
@@ -37,48 +33,48 @@ export function renderMapPreview(canvas, map, width = 240, height = 150) {
   const scale = Math.min(width / map.width, height / map.height);
   const offsetX = (width - map.width * scale) / 2;
   const offsetY = (height - map.height * scale) / 2;
-  ctx.fillStyle = cssColor(map.theme.background);
+
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, cssColor(map.theme.skyTop || map.theme.sky));
+  sky.addColorStop(1, cssColor(map.theme.skyBottom || map.theme.sky));
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, width, height);
+
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(scale, scale);
-  ctx.fillStyle = cssColor(map.theme.floor);
-  ctx.fillRect(0, 0, map.width, map.height);
-  ctx.fillStyle = cssColor(map.theme.floorAlt, 0.35);
-  for (let x = 0; x < map.width; x += 160) {
-    for (let y = 0; y < map.height; y += 160) {
-      if ((x / 160 + y / 160) % 2 === 0) ctx.fillRect(x, y, 160, 160);
-    }
-  }
-  for (const path of map.paths || []) {
-    ctx.fillStyle = path.type === 'neonpath' ? 'rgba(69, 246, 224, 0.18)' : 'rgba(255, 238, 196, 0.19)';
-    ctx.beginPath();
-    ctx.roundRect(path.x, path.y, path.w, path.h, 22);
-    ctx.fill();
-  }
-  for (const wall of map.walls) {
-    const color = wallColors[wall.type] || wallColors.boundary;
+  const ground = map.platforms.find((platform) => platform.type === 'ground');
+  const groundTop = ground?.y ?? map.height - 100;
+  ctx.fillStyle = cssColor(map.theme.floor, 0.24);
+  ctx.beginPath();
+  ctx.ellipse(map.width * 0.28, groundTop - 20, map.width * 0.3, 200, 0, 0, Math.PI * 2);
+  ctx.ellipse(map.width * 0.76, groundTop - 10, map.width * 0.28, 170, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (const platform of map.platforms) {
+    const isGround = platform.type === 'ground';
+    const color = platformColors[platform.type] || platformColors.ledge;
     ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
+    const radius = isGround ? 0 : 4;
     ctx.beginPath();
-    const radius = wall.type === 'tree' || wall.type === 'pond' ? Math.min(wall.w, wall.h) * 0.45 : 5;
-    ctx.roundRect(wall.x, wall.y, wall.w, wall.h, radius);
+    ctx.roundRect(platform.x, platform.y, platform.w, platform.h, radius);
     ctx.fill();
-    if (wall.type === 'tree') {
-      ctx.fillStyle = 'rgba(160, 229, 140, 0.35)';
+    ctx.fillStyle = cssColor(map.theme.platformTop, 0.75);
+    ctx.fillRect(platform.x, platform.y, platform.w, Math.max(2, platform.h * 0.22));
+    if (platform.type === 'neon') {
+      ctx.strokeStyle = cssColor(map.theme.accent, 0.65);
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(wall.x + wall.w * 0.42, wall.y + wall.h * 0.4, Math.min(wall.w, wall.h) * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (wall.type === 'neon') {
-      ctx.strokeStyle = 'rgba(69, 246, 224, 0.5)';
-      ctx.lineWidth = 4;
+      ctx.moveTo(platform.x + 4, platform.y);
+      ctx.lineTo(platform.x + platform.w - 4, platform.y);
       ctx.stroke();
     }
   }
+
   for (const spawn of map.spawns) {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.beginPath();
-    ctx.arc(spawn.x, spawn.y, 13, 0, Math.PI * 2);
+    ctx.arc(spawn.x, spawn.y - 6, 10, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();

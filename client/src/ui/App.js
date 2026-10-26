@@ -28,10 +28,9 @@ import {
 } from '../utils/format.js';
 
 const CONTROL_LABELS = {
-  up: 'Move up',
-  down: 'Move down',
-  left: 'Move left',
-  right: 'Move right',
+  left: 'Run left',
+  right: 'Run right',
+  jump: 'Jump',
   sprint: 'Sprint',
   tag: 'Tag',
   interact: 'Thaw / interact',
@@ -1225,7 +1224,7 @@ export class App {
         <div class="panel-head" style="padding:0 0 10px;border:0"><h2>Controls</h2><span class="tiny">Click a key to rebind it</span></div>
         ${Object.entries(CONTROL_LABELS).map(([action, label]) => `
           <div class="setting-row">
-            <div class="setting-copy"><b>${escapeHtml(label)}</b><span>${action === 'tag' ? 'Space also works as expected.' : action === 'scoreboard' ? 'Hold to view the live scoreboard.' : 'Bind up to four keys.'}</span></div>
+            <div class="setting-copy"><b>${escapeHtml(label)}</b><span>${action === 'jump' ? 'Jump is edge-triggered and also supports W and Up.' : action === 'scoreboard' ? 'Hold to view the live scoreboard.' : 'Bind up to four keys.'}</span></div>
             <div class="key-binding">
               ${(settings.bindings[action] || []).map((code, index) => `<button class="key-btn ${this.listenBinding?.action === action && this.listenBinding?.index === index ? 'is-listening' : ''}" type="button" data-action="remap-key" data-binding-action="${action}" data-binding-index="${index}">${this.listenBinding?.action === action && this.listenBinding?.index === index ? 'Press…' : escapeHtml(keyLabel(code))}</button>`).join('')}
             </div>
@@ -1337,13 +1336,14 @@ export class App {
       <section class="screen">
         <div class="screen-inner">
           ${this.topbar()}
-          ${this.pageHead({ eyebrow: 'The rules', title: 'How to play', subtitle: 'Run, read the room, and pass IT before the clock runs out.' })}
+          ${this.pageHead({ eyebrow: 'The rules', title: 'How to play', subtitle: 'Run the rooftops, clear the gaps, and pass IT before the clock runs out.' })}
           <div class="page-body stack">
             <div class="info-grid">
               <div class="info-card">
-                <h3>Move</h3>
-                <p>Use ${escapeHtml(bind('up'))}, ${escapeHtml(bind('left'))}, ${escapeHtml(bind('down'))} and ${escapeHtml(bind('right'))} — or the on-screen joystick on touch screens.</p>
-                <div class="key-row"><span>Movement</span><span class="kbd">${escapeHtml(bind('up'))} ${escapeHtml(bind('left'))} ${escapeHtml(bind('down'))} ${escapeHtml(bind('right'))}</span></div>
+                <h3>Run and jump</h3>
+                <p>Use ${escapeHtml(bind('left'))} and ${escapeHtml(bind('right'))} to run, then ${escapeHtml(bind('jump'))} to clear gaps and climb the next tier. Touch screens have a horizontal stick and a jump button.</p>
+                <div class="key-row"><span>Run</span><span class="kbd">${escapeHtml(bind('left'))} ${escapeHtml(bind('right'))}</span></div>
+                <div class="key-row"><span>Jump</span><span class="kbd">${escapeHtml(bind('jump'))}</span></div>
                 <div class="key-row"><span>Sprint</span><span class="kbd">${escapeHtml(bind('sprint'))}</span></div>
               </div>
               <div class="info-card">
@@ -1355,7 +1355,7 @@ export class App {
               </div>
               <div class="info-card">
                 <h3>Stay slippery</h3>
-                <p>Sprinting drains stamina. Break line of sight, use the corners and do not let a crowd box you in.</p>
+                <p>Sprinting drains stamina. Use height, drop through gaps and keep the high ground when a crowd closes in.</p>
                 <p style="margin-top:10px">Online matches are server-authoritative. Practice uses the same rules engine and bot AI is fully local.</p>
               </div>
             </div>
@@ -2063,6 +2063,7 @@ export class App {
               <div class="stamina-bar"><div class="stamina-fill" id="hud-stamina-fill"></div></div>
             </div>
             <div class="hud-controls-hint">
+              <span class="hint-chip"><b>${escapeHtml(bind('jump'))}</b> jump</span>
               <span class="hint-chip"><b>${escapeHtml(bind('tag'))}</b> tag</span>
               <span class="hint-chip"><b>${escapeHtml(bind('interact'))}</b> thaw</span>
               <span class="hint-chip"><b>${escapeHtml(bind('sprint'))}</b> sprint</span>
@@ -2079,6 +2080,7 @@ export class App {
           <div class="touch-buttons">
             <button class="touch-btn interact hidden" type="button" data-touch="interact" id="touch-interact">THAW</button>
             <button class="touch-btn sprint" type="button" data-touch="sprint">RUN</button>
+            <button class="touch-btn jump" type="button" data-touch="jump">JUMP</button>
             <button class="touch-btn tag" type="button" data-touch="tag">TAG</button>
           </div>
         </div>
@@ -2310,7 +2312,10 @@ export class App {
     ctx.fillRect(0, 0, map.width, map.height);
     ctx.globalAlpha = 1;
     ctx.fillStyle = hex(map.theme.wall);
-    for (const wall of map.walls) ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+    for (const platform of map.platforms) {
+      if (platform.type === 'ground') continue;
+      ctx.fillRect(platform.x, platform.y, platform.w, Math.max(3, platform.h * 0.55));
+    }
     for (const player of hud.players || []) {
       if (player.eliminated || player.connected === false) continue;
       const isIt = player.isIt || player.isEvader || player.isSeeker;
@@ -2550,6 +2555,12 @@ export class App {
       this.sceneApi?.setTouchSprint(true);
       return;
     }
+    const jump = event.target.closest('[data-touch="jump"]');
+    if (jump) {
+      event.preventDefault();
+      this.sceneApi?.setTouchJump(true);
+      return;
+    }
     const tag = event.target.closest('[data-touch="tag"]');
     if (tag) {
       event.preventDefault();
@@ -2582,27 +2593,23 @@ export class App {
   updateJoystick(event, joystick) {
     const rect = joystick.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
     const max = rect.width * 0.34;
     let dx = event.clientX - centerX;
-    let dy = event.clientY - centerY;
-    const length = Math.hypot(dx, dy);
-    if (length > max) {
-      dx = (dx / length) * max;
-      dy = (dy / length) * max;
-    }
+    dx = Math.max(-max, Math.min(max, dx));
     const knob = joystick.querySelector('#joystick-knob');
-    if (knob) knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    this.sceneApi?.setTouchVector(dx / max, dy / max);
+    if (knob) knob.style.transform = `translate(calc(-50% + ${dx}px), -50%)`;
+    this.sceneApi?.setTouchVector(dx / max);
   }
 
   handleJoystickEnd(event) {
     const sprint = event.target.closest?.('[data-touch="sprint"]');
     if (sprint) this.sceneApi?.setTouchSprint(false);
+    const jump = event.target.closest?.('[data-touch="jump"]');
+    if (jump) this.sceneApi?.setTouchJump(false);
     if (this.joystickPointer !== event.pointerId) return;
     this.joystickPointer = null;
     const knob = this.hudRoot.querySelector('#joystick-knob');
     if (knob) knob.style.transform = 'translate(-50%, -50%)';
-    this.sceneApi?.setTouchVector(0, 0);
+    this.sceneApi?.setTouchVector(0);
   }
 }

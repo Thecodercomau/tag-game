@@ -1,22 +1,16 @@
 import Phaser from 'phaser';
 import {
-  ACCELERATION,
   CHARACTERS,
-  DECELERATION,
   DEFAULT_OPTIONS,
   GRAPHICS_PRESETS,
   INPUT_RATE,
-  PALETTES,
-  PLAYER_RADIUS,
-  SPRINT_SPEED,
-  STAMINA_MAX,
-  STAMINA_SPRINT_MIN,
-  WALK_SPEED
+  PALETTES
 } from '@shared/constants.js';
 import { MATCH_PHASES, SERVER_EVENTS } from '@shared/events.js';
 import { MatchEngine } from '@shared/MatchEngine.js';
 import { MODE_MAP } from '@shared/constants.js';
-import { clamp, circleRectOverlap, distance, normalize } from '@shared/utils.js';
+import { stepPlayerPhysics } from '@shared/physics.js';
+import { clamp, distance, normalize } from '@shared/utils.js';
 import { CharacterView } from './CharacterView.js';
 import { InputManager } from './InputManager.js';
 import { MapRenderer } from './MapRenderer.js';
@@ -33,12 +27,6 @@ function appearanceFor(index) {
     accessoryId: ['none', 'cap', 'headphones', 'antenna', 'halo', 'scarf'][(index * 2) % 6],
     trailId: ['none', 'spark', 'bubble', 'leaf'][index % 4]
   };
-}
-
-function approach(current, target, maxDelta) {
-  if (current < target) return Math.min(current + maxDelta, target);
-  if (current > target) return Math.max(current - maxDelta, target);
-  return target;
 }
 
 function canTagTarget(modeId, local, target, tagDistance, localX, localY) {
@@ -139,8 +127,9 @@ export class GameScene extends Phaser.Scene {
 
     this.callbacks.onReady?.({
       setPaused: (value) => this.setPaused(value),
-      setTouchVector: (x, y) => this.controls?.setTouchVector(x, y),
+      setTouchVector: (x) => this.controls?.setTouchVector(x),
       setTouchSprint: (active) => this.controls?.setTouchSprint(active),
+      setTouchJump: (active) => this.controls?.setTouchJump(active),
       requestTag: () => this.attemptTag(),
       requestInteract: () => this.attemptInteract(),
       scene: this
@@ -270,7 +259,8 @@ export class GameScene extends Phaser.Scene {
     const localView = this.views.get(this.localId);
     if (localView && !this.followStarted) {
       this.followStarted = true;
-      this.cameras.main.startFollow(localView.container, true, initial ? 1 : 0.18, initial ? 1 : 0.18);
+      this.cameras.main.startFollow(localView.container, true, initial ? 1 : 0.16, initial ? 1 : 0.1);
+      this.cameras.main.setDeadzone(220, 150);
       if (initial) this.cameras.main.centerOn(localView.container.x, localView.container.y);
     }
 
@@ -299,6 +289,11 @@ export class GameScene extends Phaser.Scene {
       vy: player.vy,
       dirX: player.dirX,
       dirY: player.dirY,
+      grounded: player.grounded !== false,
+      jumpHeld: false,
+      jumpBuffer: 0,
+      coyote: 0.1,
+      exhausted: Boolean(player.exhausted),
       stamina: player.stamina,
       sprinting: Boolean(player.sprinting),
       frozen: player.frozen,
@@ -318,6 +313,7 @@ export class GameScene extends Phaser.Scene {
   syncLocalFlags(player, snapshot, authoritative, initial) {
     const state = this.localState;
     state.stamina = player.stamina;
+    state.exhausted = Boolean(player.exhausted);
     state.sprinting = Boolean(player.sprinting);
     state.frozen = player.frozen;
     state.eliminated = player.eliminated;
@@ -333,6 +329,7 @@ export class GameScene extends Phaser.Scene {
     if (authoritative || initial) {
       state.dirX = player.dirX;
       state.dirY = player.dirY;
+      state.grounded = player.grounded !== false;
     }
   }
 
@@ -357,56 +354,20 @@ export class GameScene extends Phaser.Scene {
   updateLocalPrediction(dt, time) {
     if (!this.localState || !this.snapshot) return;
     const state = this.localState;
-    const input = this.paused || this.ended || this.connectionLost ? { dx: 0, dy: 0, sprint: false } : this.controls.getInput();
-    const canMove = this.phase === MATCH_PHASES.PLAYING
+    const input = this.paused || this.ended || this.connectionLost
+      ? { dx: 0, sprint: false, jump: false }
+      : this.controls.getInput();
+    const canControl = this.phase === MATCH_PHASES.PLAYING
       && state.connected !== false
       && !state.frozen
       && !state.eliminated
       && state.animation !== 'tagged';
-    const magnitude = Math.hypot(input.dx, input.dy);
-    const moving = canMove && magnitude > 0.01;
-    const wantsSprint = Boolean(canMove && this.matchOptions?.sprintEnabled && input.sprint && moving && state.stamina > STAMINA_SPRINT_MIN);
-    const speed = wantsSprint ? SPRINT_SPEED : WALK_SPEED;
-    const targetX = moving ? input.dx * speed : 0;
-    const targetY = moving ? input.dy * speed : 0;
-    const accel = moving ? ACCELERATION : DECELERATION;
-    state.vx = approach(state.vx, targetX, accel * dt);
-    state.vy = approach(state.vy, targetY, accel * dt);
-    if (!canMove) {
-      state.vx = 0;
-      state.vy = 0;
-    }
-    this.moveLocal(state.vx * dt, state.vy * dt);
-    const velocity = Math.hypot(state.vx, state.vy);
-    if (velocity > 8) {
-      state.dirX = state.vx / velocity;
-      state.dirY = state.vy / velocity;
-    }
-    state.sprinting = wantsSprint && velocity > WALK_SPEED * 0.8;
-    state.speed = velocity;
-  }
-
-  moveLocal(dx, dy) {
-    const state = this.localState;
-    const radius = PLAYER_RADIUS;
-    if (dx !== 0) {
-      const oldX = state.x;
-      state.x += dx;
-      if (this.map.walls.some((rect) => circleRectOverlap(state.x, state.y, radius, rect))) {
-        state.x = oldX;
-        state.vx = 0;
-      }
-    }
-    if (dy !== 0) {
-      const oldY = state.y;
-      state.y += dy;
-      if (this.map.walls.some((rect) => circleRectOverlap(state.x, state.y, radius, rect))) {
-        state.y = oldY;
-        state.vy = 0;
-      }
-    }
-    state.x = clamp(state.x, radius, this.map.width - radius);
-    state.y = clamp(state.y, radius, this.map.height - radius);
+    stepPlayerPhysics(state, this.map, input, dt, {
+      sprintEnabled: this.matchOptions?.sprintEnabled,
+      clock: this.snapshot.elapsed,
+      canControl
+    });
+    state.speed = Math.abs(state.vx);
   }
 
   sendInput(dt) {
@@ -415,9 +376,11 @@ export class GameScene extends Phaser.Scene {
     this.inputAccumulator += dt;
     if (this.inputAccumulator < 1 / INPUT_RATE) return;
     this.inputAccumulator = 0;
-    const input = this.paused || this.connectionLost ? { dx: 0, dy: 0, sprint: false } : this.controls.getInput();
+    const input = this.paused || this.connectionLost
+      ? { dx: 0, sprint: false, jump: false }
+      : this.controls.getInput();
     this.inputSeq += 1;
-    this.network.sendInput(this.inputSeq, input.dx, input.dy, input.sprint);
+    this.network.sendInput(this.inputSeq, input.dx, input.sprint, input.jump);
   }
 
   updateOnlineViews(dt, time) {
@@ -457,7 +420,9 @@ export class GameScene extends Phaser.Scene {
     if (this.localState.frozen) return 'frozen';
     if (this.localState.eliminated) return 'defeat';
     if (player.animation === 'tagged' || player.animation === 'tagging' || player.animation === 'victory') return player.animation;
-    const speed = this.localState.speed || Math.hypot(this.localState.vx, this.localState.vy);
+    if (!this.localState.grounded && this.localState.vy < -60) return 'jumping';
+    if (!this.localState.grounded) return 'falling';
+    const speed = this.localState.speed || Math.abs(this.localState.vx);
     if (this.localState.sprinting && speed > 120) return 'sprinting';
     if (speed > 150) return 'running';
     if (speed > 22) return 'walking';
@@ -466,14 +431,14 @@ export class GameScene extends Phaser.Scene {
 
   updateLocalFootsteps() {
     if (this.paused || !this.localState || this.ended) return;
-    const speed = this.localState.speed || Math.hypot(this.localState.vx, this.localState.vy);
-    if (speed > 90) this.audio?.footstep(this.localState.sprinting);
+    const speed = this.localState.speed || Math.abs(this.localState.vx);
+    if (speed > 90 && this.localState.grounded) this.audio?.footstep(this.localState.sprinting);
   }
 
   updatePractice(dt, time) {
     if (!this.practiceEngine || this.ended) return;
     if (this.paused) {
-      this.practiceEngine.setInput('you', { dx: 0, dy: 0, sprint: false, seq: this.inputSeq });
+      this.practiceEngine.setInput('you', { dx: 0, sprint: false, jump: false, seq: this.inputSeq });
       return;
     }
     this.practiceAccumulator += dt;
@@ -496,7 +461,9 @@ export class GameScene extends Phaser.Scene {
         this.localState.y = local.y;
         this.localState.vx = local.vx;
         this.localState.vy = local.vy;
-        this.localState.speed = Math.hypot(local.vx, local.vy);
+        this.localState.grounded = local.grounded;
+        this.localState.exhausted = Boolean(local.exhausted);
+        this.localState.speed = Math.abs(local.vx);
         this.localState.sprinting = Boolean(local.sprinting);
       }
       if (this.practiceEngine.phase === MATCH_PHASES.ENDED && !this.practiceFinished) {
@@ -506,9 +473,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (this.localState) {
-      const speed = Math.hypot(this.localState.vx, this.localState.vy);
+      const speed = Math.abs(this.localState.vx);
       this.localState.speed = speed;
-      if (speed > 90) this.audio?.footstep(this.localState.sprinting);
+      if (speed > 90 && this.localState.grounded) this.audio?.footstep(this.localState.sprinting);
     }
     if (this.practiceFinished && !this.gameEndedNotified) {
       this.gameEndedNotified = true;
@@ -584,7 +551,7 @@ export class GameScene extends Phaser.Scene {
       if (!player || player.eliminated || player.frozen || !player.connected) continue;
       const trail = player.appearance?.trailId;
       if (!trail || trail === 'none') continue;
-      const speed = id === this.localId && this.localState ? Math.hypot(this.localState.vx, this.localState.vy) : Math.hypot(player.vx, player.vy);
+      const speed = id === this.localId && this.localState ? Math.abs(this.localState.vx) : Math.abs(player.vx);
       if (speed < 95) continue;
       const last = this.lastTrailAt.get(id) || 0;
       if (time - last < (trail === 'spark' ? 100 : 150)) continue;
@@ -824,7 +791,7 @@ export class GameScene extends Phaser.Scene {
       this.controls?.clear();
       if (this.online) {
         this.inputSeq += 1;
-        this.network?.sendInput(this.inputSeq, 0, 0, false);
+        this.network?.sendInput(this.inputSeq, 0, false, false);
       }
     }
   }

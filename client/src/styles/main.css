@@ -2152,12 +2152,19 @@ input[type="range"]::-moz-range-thumb {
   touch-action: none;
 }
 .touch-btn.sprint { width: 58px; height: 58px; }
+.touch-btn.jump { background: rgba(255, 209, 102, 0.9); color: #2b1b00; border-color: transparent; width: 72px; height: 72px; }
 .touch-btn.tag { background: rgba(255, 107, 129, 0.82); color: #250a11; border-color: transparent; }
 .touch-btn.interact { background: rgba(69, 246, 224, 0.82); color: #042521; border-color: transparent; }
 .touch-btn:active { transform: scale(0.95); }
 
 @media (pointer: coarse) {
   .touch-controls { display: flex; }
+  .touch-controls .joystick { width: 112px; height: 112px; }
+  .joystick-knob { width: 48px; height: 48px; }
+  .touch-buttons { gap: 7px; flex-wrap: wrap; justify-content: flex-end; max-width: 196px; }
+  .touch-btn { width: 56px; height: 56px; }
+  .touch-btn.sprint { width: 50px; height: 50px; }
+  .touch-btn.jump { width: 62px; height: 62px; }
   .hud-bottom { opacity: 0; pointer-events: none; }
   .hud-controls-hint { display: none; }
   .hud-minimap { width: 106px; height: 78px; }

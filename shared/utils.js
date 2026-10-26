@@ -91,7 +91,8 @@ export function isPointInMap(x, y, map, padding = 0) {
 }
 
 export function pointBlocked(x, y, map, radius = 0) {
-  return map.walls.some((rect) => circleRectOverlap(x, y, radius, rect));
+  const platforms = map.platforms || map.walls || [];
+  return platforms.some((rect) => circleRectOverlap(x, y, radius, rect));
 }
 
 export function makeId(rng = Math.random, length = 10) {

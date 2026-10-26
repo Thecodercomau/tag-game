@@ -55,6 +55,28 @@ test('customizes a runner and handles pause-menu settings in practice', async ({
   expect(errors).toEqual([]);
 });
 
+test('runs, jumps, and sprints in practice without runtime errors', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await page.click('[data-action="practice"]');
+  await page.click('[data-action="practice-start"]');
+  await expect(page.locator('body')).toHaveClass(/in-game/);
+  await page.waitForTimeout(4200);
+  await page.keyboard.down('KeyD');
+  await page.keyboard.down('ShiftLeft');
+  await page.waitForTimeout(350);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(900);
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('KeyD');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(500);
+  await page.click('[data-action="game-pause"]');
+  await page.click('.pause-card [data-action="pause-leave"]');
+  await expect(page.locator('body')).not.toHaveClass(/in-game/);
+  expect(errors).toEqual([]);
+});
+
 test('rebinds controls, swaps conflicts, and persists the result', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/');
@@ -67,7 +89,7 @@ test('rebinds controls, swaps conflicts, and persists the result', async ({ page
   await expect(page.locator('[data-action="remap-key"][data-binding-action="tag"]').first()).toHaveText('E');
   const bindings = await page.evaluate(() => JSON.parse(localStorage.getItem('tag.settings.v1')).bindings);
   expect(bindings.tag).toEqual(['KeyE']);
-  expect(bindings.interact).toEqual(['Space']);
+  expect(bindings.interact).toEqual(['KeyJ']);
 
   await page.reload();
   await page.click('[data-action="settings"]');
@@ -158,6 +180,9 @@ test.describe('mobile layout', () => {
     await expect(page.locator('body')).toHaveClass(/in-game/);
     await expect(page.locator('[data-touch="tag"]')).toBeVisible();
     await expect(page.locator('[data-touch="sprint"]')).toBeVisible();
+    await expect(page.locator('[data-touch="jump"]')).toBeVisible();
+    await page.locator('[data-touch="jump"]').tap();
+    await page.waitForTimeout(350);
     await expect(page.locator('[data-touch="interact"]')).toHaveClass(/hidden/);
     await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true);
     expect(errors).toEqual([]);

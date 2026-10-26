@@ -1,4 +1,4 @@
-import { CHARACTER_MAP, PALETTE_MAP, TEAM_COLORS } from '@shared/constants.js';
+import { CHARACTER_MAP, PALETTE_MAP, PLAYER_HALF_HEIGHT, TEAM_COLORS } from '@shared/constants.js';
 import { drawCharacter } from './CharacterArt.js';
 
 const FRAME_COUNT = {
@@ -8,6 +8,8 @@ const FRAME_COUNT = {
   sprinting: 4,
   tagging: 2,
   tagged: 2,
+  jumping: 1,
+  falling: 1,
   frozen: 1,
   victory: 2,
   defeat: 1
@@ -20,6 +22,8 @@ const FRAME_FPS = {
   sprinting: 14,
   tagging: 9,
   tagged: 12,
+  jumping: 1,
+  falling: 1,
   frozen: 1,
   victory: 5,
   defeat: 1
@@ -64,8 +68,8 @@ export class CharacterView {
     this.lastMarker = '';
     this.visible = true;
 
-    this.container = scene.add.container(Math.round(player.x), Math.round(player.y));
-    this.container.setDepth(Math.round(player.y) + 80);
+    this.container = scene.add.container(Math.round(player.x), Math.round(player.y + PLAYER_HALF_HEIGHT));
+    this.container.setDepth(Math.round(player.y + PLAYER_HALF_HEIGHT) + 80);
     this.shadow = scene.add.graphics();
     this.shadow.fillStyle(0x050a12, this.quality.shadows === false ? 0 : 0.24);
     this.shadow.fillEllipse(0, 3, 38, 12);
@@ -79,9 +83,9 @@ export class CharacterView {
     this.container.add(this.teamRing);
     this.sprite = scene.add.sprite(0, 0, this.ensureTexture('idle', 0));
     this.sprite.setOrigin(0.5, 0.87);
-    this.sprite.setDisplaySize(77, 77);
+    this.sprite.setDisplaySize(68, 68);
     this.container.add(this.sprite);
-    this.nameText = scene.add.text(0, -72, player.name, {
+    this.nameText = scene.add.text(0, -62, player.name, {
       fontFamily: '"Avenir Next", "Segoe UI", sans-serif',
       fontSize: '12px',
       fontStyle: '700',
@@ -93,7 +97,7 @@ export class CharacterView {
     this.nameText.setOrigin(0.5, 1);
     this.nameText.setResolution(2);
     this.container.add(this.nameText);
-    this.marker = scene.add.text(0, -92, '', {
+    this.marker = scene.add.text(0, -80, '', {
       fontFamily: '"Avenir Next", "Segoe UI", sans-serif',
       fontSize: '10px',
       fontStyle: '800',
@@ -166,8 +170,9 @@ export class CharacterView {
     this.dirX = player.dirX ?? this.dirX;
     this.dirY = player.dirY ?? this.dirY;
     if (Math.abs(this.dirX) > 0.22) this.sprite.setFlipX(this.dirX < 0);
-    const speed = Math.hypot(player.vx || 0, player.vy || 0);
-    this.sprite.y = speed > 25 && !player.frozen ? -Math.abs(Math.sin(now * 0.015 + this.x * 0.02)) * 1.8 : 0;
+    const speed = Math.abs(player.vx || 0);
+    this.sprite.y = speed > 25 && player.grounded !== false && !player.frozen ? -Math.abs(Math.sin(now * 0.015 + this.x * 0.02)) * 1.8 : 0;
+    this.shadow.setVisible(player.grounded !== false);
     this.sprite.setAlpha(player.eliminated ? 0.55 : player.connected === false ? 0.5 : 1);
 
     const name = this.isLocal ? `${player.name} · YOU` : player.name;
@@ -193,7 +198,8 @@ export class CharacterView {
   deriveState(player) {
     if (player.eliminated) return 'defeat';
     if (player.frozen) return 'frozen';
-    const speed = Math.hypot(player.vx || 0, player.vy || 0);
+    if (player.grounded === false) return (player.vy || 0) < -60 ? 'jumping' : 'falling';
+    const speed = Math.abs(player.vx || 0);
     if (player.sprinting && speed > 120) return 'sprinting';
     if (speed > 140) return 'running';
     if (speed > 20) return 'walking';
@@ -203,8 +209,9 @@ export class CharacterView {
   setPosition(x, y) {
     this.x = x;
     this.y = y;
-    this.container.setPosition(Math.round(x), Math.round(y));
-    this.container.setDepth(Math.round(y) + 80);
+    const feetY = y + PLAYER_HALF_HEIGHT;
+    this.container.setPosition(Math.round(x), Math.round(feetY));
+    this.container.setDepth(Math.round(feetY) + 80);
   }
 
   setHighlight(active, color = 0xffd166) {

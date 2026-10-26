@@ -22,8 +22,10 @@ describe('protocol schemas', () => {
   it('validates quick match modes and input ranges', () => {
     expect(parse(quickMatchSchema, { modeId: 'freeze' }).ok).toBe(true);
     expect(parse(quickMatchSchema, { modeId: 'invalid' }).ok).toBe(false);
-    expect(parse(inputSchema, { seq: 1, dx: 0.5, dy: -1, sprint: true }).ok).toBe(true);
-    expect(parse(inputSchema, { seq: 1, dx: 4, dy: 0, sprint: false }).ok).toBe(false);
+    expect(parse(inputSchema, { seq: 1, dx: 0.5, sprint: true, jump: false }).ok).toBe(true);
+    expect(parse(inputSchema, { seq: 1, dx: -1, sprint: false, jump: true }).ok).toBe(true);
+    expect(parse(inputSchema, { seq: 1, dx: 4, sprint: false }).ok).toBe(false);
+    expect(parse(inputSchema, { seq: 1, dx: 0, sprint: false, dy: 1 }).ok).toBe(false);
   });
 
   it('trims and bounds chat messages', () => {

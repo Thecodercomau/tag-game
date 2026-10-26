@@ -1,16 +1,24 @@
 export const GAME_NAME = 'TAG';
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const TICK_RATE = 30;
 export const SNAPSHOT_RATE = 20;
 export const INPUT_RATE = 30;
 export const SERVER_TICK_MS = 1000 / TICK_RATE;
 
 export const PLAYER_RADIUS = 17;
+export const PLAYER_HALF_WIDTH = 15;
+export const PLAYER_HALF_HEIGHT = 27;
 export const WORLD_PADDING = 24;
-export const WALK_SPEED = 188;
-export const SPRINT_SPEED = 292;
-export const ACCELERATION = 1750;
-export const DECELERATION = 2300;
+export const WALK_SPEED = 190;
+export const SPRINT_SPEED = 300;
+export const ACCELERATION = 1850;
+export const DECELERATION = 2450;
+export const AIR_ACCELERATION = 1250;
+export const GRAVITY = 2200;
+export const JUMP_SPEED = 900;
+export const MAX_FALL_SPEED = 1500;
+export const COYOTE_TIME = 0.1;
+export const JUMP_BUFFER_TIME = 0.13;
 export const DIAGONAL_NORMALIZER = Math.SQRT1_2;
 
 export const STAMINA_MAX = 100;
@@ -200,12 +208,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   screenShake: true,
   colorBlindMarkers: true,
   bindings: {
-    up: ['KeyW', 'ArrowUp'],
-    down: ['KeyS', 'ArrowDown'],
     left: ['KeyA', 'ArrowLeft'],
     right: ['KeyD', 'ArrowRight'],
+    jump: ['Space', 'KeyW', 'ArrowUp'],
     sprint: ['ShiftLeft', 'ShiftRight'],
-    tag: ['Space'],
+    tag: ['KeyJ'],
     interact: ['KeyE'],
     scoreboard: ['Tab']
   }

@@ -228,11 +228,6 @@ export function drawCharacter(ctx, options = {}) {
       ? Math.sin(time * 17 + frame * Math.PI) * 13
       : 0;
 
-  ctx.fillStyle = 'rgba(4, 7, 16, 0.28)';
-  ctx.beginPath();
-  ctx.ellipse(64, 111, 29, 7, 0, 0, Math.PI * 2);
-  ctx.fill();
-
   if (teamColor) {
     ctx.strokeStyle = teamColor;
     ctx.lineWidth = 3;

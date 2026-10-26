@@ -1,6 +1,6 @@
 # TAG
 
-A fast, top-down multiplayer chase game for the browser. Six modes, five original maps, private rooms, room codes, LAN play, and offline practice against bots.
+A fast, side-view multiplayer platformer chase game for the browser. Run, jump, and vault across five original arenas in six modes, with private rooms, room codes, LAN play, and offline practice against bots.
 
 Built with Phaser 3, Socket.IO, Express, Vite, and plain JavaScript. No account is required: profiles, settings, stats, and achievements stay on the device.
 
@@ -52,14 +52,15 @@ For an always-on VM instead, the repository also includes a multi-stage Dockerfi
 
 | Action | Default keys |
 | --- | --- |
-| Move | `WASD` or arrow keys |
+| Run | `A` / `D` or `Left` / `Right` |
+| Jump | `Space`, `W`, or `Up` |
 | Sprint | `Shift` |
-| Tag | `Space` |
+| Tag | `J` |
 | Revive / interact | `E` |
 | Scoreboard | `Tab` |
 | Pause | `Escape` |
 
-Touch controls appear automatically on mobile. Every binding can be changed in **Settings → Controls**.
+Jump between one-way platforms, use coyote time and jump buffering to chain moves, and sprint while stamina lasts. Touch controls appear automatically on mobile, including a dedicated jump button. Every binding can be changed in **Settings → Controls**.
 
 ## Modes
 
@@ -72,7 +73,8 @@ Touch controls appear automatically on mobile. Every binding can be changed in *
 
 ## Features
 
-- Server-authoritative movement, tag validation, mode rules, results, and reconnect grace.
+- Server-authoritative side-view physics, tag validation, mode rules, results, and reconnect grace.
+- Shared gravity, jumping, coyote time, jump buffering, stamina, and one-way platform collision for client prediction and the server.
 - Quick match, public/private/LAN rooms, host controls, room codes, and chat.
 - Practice with 1–11 bots and easy, normal, or hard behavior.
 - Procedural characters, maps, trails, particles, and sound effects; no external game art required.
@@ -138,7 +140,7 @@ Playwright builds the app and starts a production server automatically. It reuse
 client/             Phaser scenes, UI, networking, audio, procedural art, CSS
 client/public/audio Generated WAV assets
 server/             Express/Socket.IO server, lobbies, matches, validation
-shared/             Match engine, mode rules, maps, schemas, constants
+shared/             Match engine, physics, mode rules, maps, schemas, constants
 scripts/            Audio and LAN smoke tests
 deploy/             Oracle Cloud fallback guide and Caddy config
 render.yaml         Render free deployment Blueprint

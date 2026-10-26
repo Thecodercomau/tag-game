@@ -1,12 +1,16 @@
-import { PLAYER_RADIUS } from '@shared/constants.js';
-import { circleRectOverlap, distance, normalize, pointBlocked } from '@shared/utils.js';
+import { PLAYER_HALF_HEIGHT, PLAYER_HALF_WIDTH } from '@shared/constants.js';
+import { platformUnder } from '@shared/physics.js';
+import { clamp, distance } from '@shared/utils.js';
 
-const CELL = 38;
 const DIFFICULTY = {
   easy: { think: 0.75, react: 0.34, speed: 0.78, sprint: 0.42, tagChance: 0.55, threat: 320, repath: 0.72 },
   normal: { think: 0.5, react: 0.16, speed: 0.92, sprint: 0.78, tagChance: 0.86, threat: 390, repath: 0.55 },
   hard: { think: 0.32, react: 0.04, speed: 1, sprint: 0.95, tagChance: 1, threat: 470, repath: 0.38 }
 };
+
+function gapBetween(a, b) {
+  return Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w));
+}
 
 export class BotController {
   constructor(engine, difficulty = 'normal') {
@@ -14,143 +18,128 @@ export class BotController {
     this.map = engine.map;
     this.difficulty = DIFFICULTY[difficulty] ? difficulty : 'normal';
     this.config = DIFFICULTY[this.difficulty];
-    this.cols = Math.ceil(this.map.width / CELL);
-    this.rows = Math.ceil(this.map.height / CELL);
-    this.blocked = new Uint8Array(this.cols * this.rows);
-    this.buildGrid();
+    this.platforms = this.map.platforms || [];
+    this.adjacency = this.buildAdjacency();
     this.states = new Map();
     for (const player of engine.players.filter((entry) => entry.isBot)) {
       this.states.set(player.id, {
-        path: [],
+        mode: 'wander',
         target: null,
         targetPoint: null,
-        mode: 'wander',
         thinkTimer: Math.random() * 0.4,
-        pathTimer: 0,
         tagTimer: Math.random() * 0.4,
         interactTimer: 0.2,
-        lastX: player.x,
-        lastY: player.y,
-        stuckTimer: 0,
-        wanderTimer: 0,
         reactTimer: 0,
-        desiredTargetId: null,
-        pathGoal: null
+        wanderTimer: 0,
+        jumpPulse: 0,
+        hopTimer: 1 + Math.random() * 2,
+        routeTimer: 0,
+        route: [],
+        routeFrom: -1,
+        routeTo: -1,
+        lastX: player.x,
+        stuckTimer: 0
       });
     }
   }
 
-  buildGrid() {
-    for (let gy = 0; gy < this.rows; gy += 1) {
-      for (let gx = 0; gx < this.cols; gx += 1) {
-        const x = gx * CELL + CELL / 2;
-        const y = gy * CELL + CELL / 2;
-        const out = x < PLAYER_RADIUS + 6 || y < PLAYER_RADIUS + 6 || x > this.map.width - PLAYER_RADIUS - 6 || y > this.map.height - PLAYER_RADIUS - 6;
-        this.blocked[gy * this.cols + gx] = out || pointBlocked(x, y, this.map, PLAYER_RADIUS + 5) ? 1 : 0;
+  buildAdjacency() {
+    const adjacency = this.platforms.map(() => []);
+    for (let i = 0; i < this.platforms.length; i += 1) {
+      for (let j = 0; j < this.platforms.length; j += 1) {
+        if (i === j) continue;
+        const a = this.platforms[i];
+        const b = this.platforms[j];
+        const gap = gapBetween(a, b);
+        const rise = a.y - b.y;
+        if (rise > 235) continue;
+        const maxGap = rise > 0 ? 250 - rise * 0.2 : 280 + Math.min(180, -rise * 0.25);
+        if (gap > maxGap) continue;
+        adjacency[i].push(j);
       }
     }
+    return adjacency;
   }
 
-  cellIndex(x, y) {
-    const gx = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL)));
-    const gy = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL)));
-    return gy * this.cols + gx;
+  platformUnderPlayer(player) {
+    return platformUnder(player.x, player.y + PLAYER_HALF_HEIGHT, this.map);
   }
 
-  cellCenter(index) {
-    return { x: (index % this.cols) * CELL + CELL / 2, y: Math.floor(index / this.cols) * CELL + CELL / 2 };
-  }
-
-  nearestOpen(x, y) {
-    const gx = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL)));
-    const gy = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL)));
-    for (let radius = 0; radius < 8; radius += 1) {
-      for (let oy = -radius; oy <= radius; oy += 1) {
-        for (let ox = -radius; ox <= radius; ox += 1) {
-          if (Math.max(Math.abs(ox), Math.abs(oy)) !== radius) continue;
-          const nx = gx + ox;
-          const ny = gy + oy;
-          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
-          if (!this.blocked[ny * this.cols + nx]) return ny * this.cols + nx;
+  platformIndexAt(x, feetY, fallbackTop = null) {
+    if (fallbackTop != null) {
+      let best = -1;
+      let bestScore = Infinity;
+      for (let index = 0; index < this.platforms.length; index += 1) {
+        const platform = this.platforms[index];
+        if (x + PLAYER_HALF_WIDTH <= platform.x || x - PLAYER_HALF_WIDTH >= platform.x + platform.w) continue;
+        const score = Math.abs(platform.y - fallbackTop);
+        if (score < bestScore) {
+          bestScore = score;
+          best = index;
         }
       }
+      if (best >= 0) return best;
     }
-    return gy * this.cols + gx;
+    const exact = this.platformUnderPlayer({ x, y: feetY - PLAYER_HALF_HEIGHT });
+    if (exact) return this.platforms.indexOf(exact);
+    let best = -1;
+    let bestScore = Infinity;
+    for (let index = 0; index < this.platforms.length; index += 1) {
+      const platform = this.platforms[index];
+      const horizontal = x < platform.x ? platform.x - x : x > platform.x + platform.w ? x - (platform.x + platform.w) : 0;
+      const below = platform.y >= feetY - 20 ? platform.y - feetY : 500 + (feetY - platform.y);
+      const score = Math.hypot(horizontal, below);
+      if (score < bestScore) {
+        bestScore = score;
+        best = index;
+      }
+    }
+    return best;
   }
 
-  lineClear(ax, ay, bx, by, radius = PLAYER_RADIUS + 2) {
-    const dist = Math.hypot(bx - ax, by - ay);
-    const steps = Math.max(1, Math.ceil(dist / 12));
-    for (let i = 1; i < steps; i += 1) {
-      const t = i / steps;
-      if (pointBlocked(ax + (bx - ax) * t, ay + (by - ay) * t, this.map, radius)) return false;
-    }
-    return true;
+  surfaceIndex(player) {
+    return this.platformIndexAt(player.x, player.y + PLAYER_HALF_HEIGHT);
   }
 
-  findPath(from, goal) {
-    const start = this.nearestOpen(from.x, from.y);
-    const end = this.nearestOpen(goal.x, goal.y);
-    if (start === end) return [goal];
-    const total = this.cols * this.rows;
-    const queue = new Int32Array(total);
-    const visited = new Uint8Array(total);
-    const parent = new Int32Array(total);
-    parent.fill(-1);
-    let head = 0;
-    let tail = 0;
-    queue[tail++] = start;
-    visited[start] = 1;
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-    let found = false;
-    while (head < tail) {
-      const current = queue[head++];
-      if (current === end) { found = true; break; }
-      const cx = current % this.cols;
-      const cy = Math.floor(current / this.cols);
-      for (const [dx, dy] of dirs) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
-        const next = ny * this.cols + nx;
-        if (visited[next] || this.blocked[next]) continue;
-        if (dx !== 0 && dy !== 0) {
-          if (this.blocked[cy * this.cols + nx] || this.blocked[ny * this.cols + cx]) continue;
-        }
+  goalIndex(goal) {
+    if (!goal) return -1;
+    return this.platformIndexAt(goal.x, goal.y + PLAYER_HALF_HEIGHT, goal.y + PLAYER_HALF_HEIGHT);
+  }
+
+  findPlatformPath(from, to) {
+    if (from < 0 || to < 0) return [];
+    if (from === to) return [from];
+    const previous = new Int32Array(this.platforms.length).fill(-1);
+    const visited = new Uint8Array(this.platforms.length);
+    const queue = [from];
+    visited[from] = 1;
+    for (let head = 0; head < queue.length; head += 1) {
+      const current = queue[head];
+      if (current === to) break;
+      for (const next of this.adjacency[current]) {
+        if (visited[next]) continue;
         visited[next] = 1;
-        parent[next] = current;
-        queue[tail++] = next;
+        previous[next] = current;
+        queue.push(next);
       }
     }
-    if (!found) return [];
-    const points = [];
-    let current = end;
-    while (current !== -1) {
-      points.push(this.cellCenter(current));
-      if (current === start) break;
-      current = parent[current];
+    if (!visited[to]) return [];
+    const path = [];
+    let cursor = to;
+    while (cursor !== -1) {
+      path.push(cursor);
+      if (cursor === from) break;
+      cursor = previous[cursor];
     }
-    points.reverse();
-    points.push(goal);
-    return this.smooth(points);
+    return path.reverse();
   }
 
-  smooth(points) {
-    if (points.length <= 2) return points;
-    const output = [];
-    let index = 0;
-    while (index < points.length - 1) {
-      let next = index + 1;
-      for (let candidate = points.length - 1; candidate > index + 1; candidate -= 1) {
-        if (this.lineClear(points[index].x, points[index].y, points[candidate].x, points[candidate].y, PLAYER_RADIUS + 1)) {
-          next = candidate;
-          break;
-        }
-      }
-      output.push(points[next]);
-      index = next;
-    }
-    return output;
+  launchX(current, next, player) {
+    const left = Math.max(current.x + 22, next.x);
+    const right = Math.min(current.x + current.w - 22, next.x + next.w);
+    if (right >= left) return clamp((next.x + next.w / 2), left, Math.max(left, right));
+    if (next.x > current.x) return current.x + current.w - 16;
+    return current.x + 16;
   }
 
   nearestFrom(player, list) {
@@ -159,16 +148,18 @@ export class BotController {
     for (const other of list) {
       if (!other || other.id === player.id || other.eliminated || !other.connected) continue;
       const d = distance(player.x, player.y, other.x, other.y);
-      if (d < bestDist) { bestDist = d; best = other; }
+      if (d < bestDist) {
+        bestDist = d;
+        best = other;
+      }
     }
     return { player: best, distance: bestDist };
   }
 
-  chooseStrategy(player, state) {
+  chooseStrategy(player) {
     const mode = this.engine.modeId;
-    const others = this.engine.players;
     const threatRange = this.config.threat;
-    const survivors = others.filter((entry) => !entry.eliminated && entry.connected && entry.id !== player.id);
+    const survivors = this.engine.players.filter((entry) => !entry.eliminated && entry.connected && entry.id !== player.id);
     if (!survivors.length) return { mode: 'wander' };
 
     if (mode === 'team') {
@@ -188,8 +179,7 @@ export class BotController {
 
     if (mode === 'reverse') {
       if (player.isEvader) {
-        const hunters = survivors.filter((entry) => entry.id !== player.id);
-        const nearest = this.nearestFrom(player, hunters);
+        const nearest = this.nearestFrom(player, survivors);
         return nearest.distance < threatRange * 1.55
           ? { mode: 'flee', target: nearest.player, distance: nearest.distance, urgent: true }
           : { mode: 'wander' };
@@ -201,12 +191,10 @@ export class BotController {
 
     if (mode === 'infection') {
       if (player.infected) {
-        const targets = survivors.filter((entry) => !entry.infected);
-        const nearest = this.nearestFrom(player, targets);
+        const nearest = this.nearestFrom(player, survivors.filter((entry) => !entry.infected));
         return { mode: 'chase', target: nearest.player, distance: nearest.distance };
       }
-      const infected = survivors.filter((entry) => entry.infected);
-      const nearest = this.nearestFrom(player, infected);
+      const nearest = this.nearestFrom(player, survivors.filter((entry) => entry.infected));
       return nearest.distance < threatRange
         ? { mode: 'flee', target: nearest.player, distance: nearest.distance }
         : { mode: 'wander' };
@@ -214,14 +202,12 @@ export class BotController {
 
     if (mode === 'freeze') {
       if (player.isIt) {
-        const targets = survivors.filter((entry) => !entry.frozen);
-        const nearest = this.nearestFrom(player, targets);
+        const nearest = this.nearestFrom(player, survivors.filter((entry) => !entry.frozen));
         return { mode: 'chase', target: nearest.player, distance: nearest.distance };
       }
       const threat = survivors.find((entry) => entry.isIt);
       const threatDist = threat ? distance(player.x, player.y, threat.x, threat.y) : Infinity;
-      const frozen = survivors.filter((entry) => entry.frozen);
-      const rescue = this.nearestFrom(player, frozen);
+      const rescue = this.nearestFrom(player, survivors.filter((entry) => entry.frozen));
       if (rescue.player && threatDist > 100 && rescue.distance < 470) {
         return { mode: 'rescue', target: rescue.player, distance: rescue.distance };
       }
@@ -230,8 +216,7 @@ export class BotController {
     }
 
     if (player.isIt) {
-      const targets = survivors.filter((entry) => !entry.isIt);
-      const nearest = this.nearestFrom(player, targets);
+      const nearest = this.nearestFrom(player, survivors.filter((entry) => !entry.isIt));
       return { mode: 'chase', target: nearest.player, distance: nearest.distance };
     }
     const it = survivors.find((entry) => entry.isIt);
@@ -240,36 +225,36 @@ export class BotController {
     return dist < threatRange ? { mode: 'flee', target: it, distance: dist } : { mode: 'wander' };
   }
 
-  fleePoint(player, threats, state) {
+  fleePoint(player, threats) {
     let best = null;
     let bestScore = -Infinity;
-    for (let i = 0; i < 18; i += 1) {
-      const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.2;
-      const radius = 240 + Math.random() * 260;
-      const x = player.x + Math.cos(angle) * radius;
-      const y = player.y + Math.sin(angle) * radius;
-      if (x < 50 || y < 50 || x > this.map.width - 50 || y > this.map.height - 50) continue;
-      if (pointBlocked(x, y, this.map, PLAYER_RADIUS + 10)) continue;
+    for (const spawn of this.map.spawns) {
       let nearest = Infinity;
-      for (const threat of threats) nearest = Math.min(nearest, distance(x, y, threat.x, threat.y));
-      const edgePenalty = Math.max(0, 190 - Math.min(x, y, this.map.width - x, this.map.height - y)) * 3;
-      const centerPull = distance(x, y, this.map.width / 2, this.map.height / 2) * 0.08;
-      const score = nearest - edgePenalty - centerPull + (this.lineClear(player.x, player.y, x, y) ? 90 : 0);
-      if (score > bestScore) { bestScore = score; best = { x, y }; }
+      for (const threat of threats) nearest = Math.min(nearest, distance(spawn.x, spawn.y, threat.x, threat.y));
+      const reached = distance(player.x, player.y, spawn.x, spawn.y) < 260 ? -160 : 0;
+      const score = nearest + reached + Math.random() * 70;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: spawn.x, y: spawn.y };
+      }
     }
-    return best || { x: this.map.width / 2, y: this.map.height / 2 };
+    return best || { x: player.x, y: player.y };
   }
 
   wanderPoint(player, state) {
     if (state.targetPoint && state.wanderTimer > 0) return state.targetPoint;
-    const spawns = this.map.spawns;
-    const point = spawns[Math.floor(Math.random() * spawns.length)];
-    state.wanderTimer = 2.4 + Math.random() * 2.8;
-    if (distance(player.x, player.y, point.x, point.y) < 120) {
-      state.wanderTimer = 0.3;
-      return { x: this.map.width / 2 + (Math.random() - 0.5) * this.map.width * 0.5, y: this.map.height / 2 + (Math.random() - 0.5) * this.map.height * 0.5 };
+    let best = null;
+    let bestScore = -Infinity;
+    for (const spawn of this.map.spawns) {
+      const d = distance(player.x, player.y, spawn.x, spawn.y);
+      const score = (d < 100 ? -180 : d) + Math.random() * 220;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: spawn.x, y: spawn.y };
+      }
     }
-    return point;
+    state.wanderTimer = 2.4 + Math.random() * 2.8;
+    return best || { x: player.x, y: player.y };
   }
 
   update(dt) {
@@ -279,87 +264,79 @@ export class BotController {
       const state = this.states.get(player.id);
       if (!state) continue;
       if (player.eliminated || player.frozen || !player.connected || engine.phase === 'ended') {
-        engine.setInput(player.id, { dx: 0, dy: 0, sprint: false, seq: player.lastInputSeq + 1 });
+        engine.setInput(player.id, { dx: 0, sprint: false, jump: false, seq: player.lastInputSeq + 1 });
         continue;
       }
+
       state.thinkTimer -= dt;
-      state.pathTimer -= dt;
       state.tagTimer -= dt;
       state.interactTimer -= dt;
       state.reactTimer -= dt;
       state.wanderTimer -= dt;
+      state.jumpPulse = Math.max(0, state.jumpPulse - dt);
+      state.hopTimer -= dt;
+      state.routeTimer -= dt;
+
       if (state.thinkTimer <= 0) {
         state.thinkTimer = this.config.think + Math.random() * 0.15;
-        const strategy = this.chooseStrategy(player, state);
-        if (strategy.target?.id !== state.desiredTargetId) state.reactTimer = this.config.react;
-        state.desiredTargetId = strategy.target?.id || null;
+        const strategy = this.chooseStrategy(player);
+        if (strategy.target?.id !== state.target?.id) state.reactTimer = this.config.react;
         state.mode = strategy.mode;
         state.target = strategy.target || null;
         state.urgent = Boolean(strategy.urgent);
         state.threatDistance = strategy.distance;
         if (strategy.mode === 'flee') {
           const threats = engine.players.filter((entry) => entry.id !== player.id && entry.connected && !entry.eliminated && !entry.frozen);
-          state.targetPoint = this.fleePoint(player, threats, state);
-          state.path = [];
-          state.pathTimer = this.config.repath;
-        } else if (strategy.mode === 'chase' || strategy.mode === 'rescue' || strategy.mode === 'group') {
-          if (strategy.target) {
-            state.targetPoint = { x: strategy.target.x, y: strategy.target.y };
-            state.pathGoal = null;
-          }
+          state.targetPoint = this.fleePoint(player, threats);
+          state.routeTimer = 0;
         } else if (strategy.mode === 'wander') {
           state.targetPoint = this.wanderPoint(player, state);
-          state.pathGoal = null;
+          state.routeTimer = 0;
+        } else if (strategy.target) {
+          state.targetPoint = { x: strategy.target.x, y: strategy.target.y };
+          state.routeTimer = 0;
         }
       }
 
-      if (state.mode === 'chase' && state.target) {
-        const goalMoved = !state.pathGoal || distance(state.pathGoal.x, state.pathGoal.y, state.target.x, state.target.y) > 130;
-        if (state.pathTimer <= 0 || goalMoved || !state.path.length) {
-          state.targetPoint = { x: state.target.x, y: state.target.y };
-          state.path = this.findPath(player, state.targetPoint);
-          state.pathGoal = { x: state.target.x, y: state.target.y };
-          state.pathTimer = this.config.repath;
+      const goal = state.targetPoint || (state.target ? { x: state.target.x, y: state.target.y } : null);
+      if (!goal) {
+        engine.setInput(player.id, { dx: 0, sprint: false, jump: false, seq: player.lastInputSeq + 1 });
+        continue;
+      }
+
+      if (player.grounded) {
+        const current = this.surfaceIndex(player);
+        const targetIndex = this.goalIndex(goal);
+        if (state.routeTimer <= 0 || state.routeFrom !== current || state.routeTo !== targetIndex) {
+          state.route = this.findPlatformPath(current, targetIndex);
+          state.routeFrom = current;
+          state.routeTo = targetIndex;
+          state.routeTimer = this.config.repath;
         }
-      } else if (state.mode === 'flee' && state.pathTimer <= 0 && state.targetPoint) {
-        state.path = this.findPath(player, state.targetPoint);
-        state.pathTimer = this.config.repath;
-      } else if (state.mode === 'rescue' && state.target) {
-        state.targetPoint = { x: state.target.x, y: state.target.y };
-        state.path = this.findPath(player, state.targetPoint);
-        state.pathTimer = this.config.repath;
+        if (state.route.length > 1) {
+          const currentPlatform = this.platforms[state.route[0]];
+          const nextPlatform = this.platforms[state.route[1]];
+          const jumpX = this.launchX(currentPlatform, nextPlatform, player);
+          const gap = gapBetween(currentPlatform, nextPlatform);
+          const needsJump = nextPlatform.y < currentPlatform.y - 8 || gap > 30;
+          goal.steerX = jumpX;
+          if (needsJump && Math.abs(player.x - jumpX) < 58) state.jumpPulse = 0.16;
+          if (!needsJump && nextPlatform.y > currentPlatform.y + 50) goal.steerX = jumpX;
+        } else {
+          goal.steerX = goal.x;
+        }
+        if (state.hopTimer <= 0 && state.route.length <= 1 && Math.abs(goal.x - player.x) > 90) {
+          state.hopTimer = 1.4 + Math.random() * 1.8;
+          state.jumpPulse = 0.15;
+        }
+      } else if (state.route.length > 1) {
+        const next = this.platforms[state.route[1]];
+        goal.steerX = next.x + next.w / 2;
+      } else {
+        goal.steerX = goal.x;
       }
 
-      const movement = Math.hypot(player.x - state.lastX, player.y - state.lastY);
-      state.lastX = player.x;
-      state.lastY = player.y;
-      if (movement < 1.2) state.stuckTimer += dt; else state.stuckTimer = Math.max(0, state.stuckTimer - dt * 2);
-      if (state.stuckTimer > 0.95) {
-        state.stuckTimer = 0;
-        state.path = [];
-        state.pathTimer = 0;
-        state.targetPoint = this.wanderPoint(player, state);
-      }
-
-      let waypoint = state.path[0] || state.targetPoint;
-      if (!waypoint) {
-        const wander = this.wanderPoint(player, state);
-        waypoint = wander;
-      }
-      while (state.path.length && distance(player.x, player.y, state.path[0].x, state.path[0].y) < 28) {
-        state.path.shift();
-      }
-      waypoint = state.path[0] || state.targetPoint || waypoint;
-
-      let dx = waypoint.x - player.x;
-      let dy = waypoint.y - player.y;
-      const direction = normalize(dx, dy);
-      dx = direction.x;
-      dy = direction.y;
-      if (state.reactTimer > 0) {
-        dx *= 0.18;
-        dy *= 0.18;
-      }
+      const horizontal = clamp((goal.steerX - player.x) / 120, -1, 1);
       let sprint = false;
       const needsSpeed = state.mode === 'chase' || state.mode === 'flee' || state.mode === 'rescue';
       if (needsSpeed && player.stamina > 18 && Math.random() < this.config.sprint) {
@@ -368,11 +345,21 @@ export class BotController {
       }
       const speed = this.config.speed;
       engine.setInput(player.id, {
-        dx: dx * speed,
-        dy: dy * speed,
+        dx: horizontal * speed,
         sprint,
+        jump: state.jumpPulse > 0,
         seq: player.lastInputSeq + 1
       });
+
+      const moved = Math.abs(player.x - state.lastX);
+      state.lastX = player.x;
+      if (moved < 0.9 && Math.abs(horizontal) > 0.35) state.stuckTimer += dt;
+      else state.stuckTimer = Math.max(0, state.stuckTimer - dt * 2);
+      if (state.stuckTimer > 0.8) {
+        state.stuckTimer = 0;
+        state.jumpPulse = 0.16;
+        state.routeTimer = 0;
+      }
 
       if (state.tagTimer <= 0 && (state.mode === 'chase' || state.target)) {
         state.tagTimer = 0.28 + Math.random() * 0.18;

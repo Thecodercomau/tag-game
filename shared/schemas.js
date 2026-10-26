@@ -83,8 +83,8 @@ export const chatSchema = z.object({ message: z.string().trim().min(1).max(MAX_C
 export const inputSchema = z.object({
   seq: z.number().int().min(0).max(1e9),
   dx: z.number().min(-1).max(1),
-  dy: z.number().min(-1).max(1),
-  sprint: z.boolean()
+  sprint: z.boolean(),
+  jump: z.boolean().default(false)
 }).strict();
 
 export const tagSchema = z.object({

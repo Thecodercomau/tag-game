@@ -58,7 +58,15 @@ function normalizeSettings(input) {
   settings.musicVolume = Math.max(0, Math.min(1, Number(settings.musicVolume)));
   settings.sfxVolume = Math.max(0, Math.min(1, Number(settings.sfxVolume)));
   if (!['low', 'medium', 'high'].includes(settings.graphics)) settings.graphics = 'high';
+  const previousBindings = input?.bindings;
   settings.bindings = deepMerge(DEFAULT_SETTINGS.bindings, settings.bindings || {});
+  if (!previousBindings?.jump) {
+    settings.bindings.jump = [...DEFAULT_SETTINGS.bindings.jump];
+    const tagKeys = (settings.bindings.tag || []).filter((code) => !DEFAULT_SETTINGS.bindings.jump.includes(code));
+    settings.bindings.tag = tagKeys.length ? tagKeys : [...DEFAULT_SETTINGS.bindings.tag];
+  }
+  delete settings.bindings.up;
+  delete settings.bindings.down;
   for (const key of Object.keys(DEFAULT_SETTINGS.bindings)) {
     const value = settings.bindings[key];
     if (!Array.isArray(value) || !value.length || value.some((entry) => typeof entry !== 'string')) {

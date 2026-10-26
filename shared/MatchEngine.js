@@ -1,47 +1,17 @@
 import {
-  ACCELERATION,
   COUNTDOWN_SECONDS,
-  DECELERATION,
   DEFAULT_OPTIONS,
+  PLAYER_HALF_WIDTH,
   PLAYER_RADIUS,
   REVIVE_COOLDOWN_MS,
-  SPRINT_SPEED,
-  STAMINA_DRAIN,
   STAMINA_MAX,
-  STAMINA_RECOVER_DELAY,
-  STAMINA_REGEN,
-  STAMINA_SPRINT_MIN,
-  TAG_IMMUNITY_MS,
-  TAG_STUN_MS,
-  WALK_SPEED
+  TAG_STUN_MS
 } from './constants.js';
 import { getMap } from './maps.js';
 import { getModeRules } from './mode-rules.js';
 import { MATCH_PHASES } from './events.js';
-import { circleRectOverlap, clamp, distance, makeId, normalize, pointBlocked, shuffle } from './utils.js';
-
-function approach(current, target, maxDelta) {
-  if (current < target) return Math.min(current + maxDelta, target);
-  if (current > target) return Math.max(current - maxDelta, target);
-  return target;
-}
-
-function sanitizeInput(input) {
-  if (!input || typeof input !== 'object') return { dx: 0, dy: 0, sprint: false, seq: 0 };
-  let dx = Number.isFinite(input.dx) ? clamp(input.dx, -1, 1) : 0;
-  let dy = Number.isFinite(input.dy) ? clamp(input.dy, -1, 1) : 0;
-  const magnitude = Math.hypot(dx, dy);
-  if (magnitude > 1) {
-    dx /= magnitude;
-    dy /= magnitude;
-  }
-  return {
-    dx,
-    dy,
-    sprint: Boolean(input.sprint),
-    seq: Number.isInteger(input.seq) ? input.seq : 0
-  };
-}
+import { sanitizeInput, stepPlayerPhysics } from './physics.js';
+import { clamp, distance, makeId, pointBlocked, shuffle } from './utils.js';
 
 export class MatchEngine {
   constructor({ matchId = makeId(), modeId = 'classic', mapId = 'playground', options = {}, players = [], rng = Math.random } = {}) {
@@ -84,10 +54,14 @@ export class MatchEngine {
       y: spawn.y,
       vx: 0,
       vy: 0,
-      dirX: 0,
-      dirY: 1,
+      dirX: 1,
+      dirY: 0,
       radius: PLAYER_RADIUS,
-      input: { dx: 0, dy: 0, sprint: false, seq: 0 },
+      grounded: true,
+      jumpHeld: false,
+      jumpBuffer: 0,
+      coyote: 0.1,
+      input: { dx: 0, dy: 0, sprint: false, jump: false, seq: 0 },
       lastInputSeq: 0,
       stamina: STAMINA_MAX,
       sprinting: false,
@@ -102,7 +76,6 @@ export class MatchEngine {
       eliminated: false,
       eliminatedAt: 0,
       connected: true,
-      tagImmununeUntil: 0,
       tagImmuneUntil: 0,
       lastTagAt: -999,
       lastInteractAt: -999,
@@ -240,60 +213,17 @@ export class MatchEngine {
   }
 
   updatePlayer(player, dt) {
-    const input = player.input;
-    const magnitude = Math.hypot(input.dx, input.dy);
-    const canMove = player.connected && !player.frozen && !player.eliminated && this.clock >= player.stunUntil;
-    const moving = canMove && magnitude > 0.01;
-    const wantsSprint = Boolean(this.options.sprintEnabled && input.sprint && moving && !player.exhausted && player.stamina > STAMINA_SPRINT_MIN);
-    const targetSpeed = wantsSprint ? SPRINT_SPEED : WALK_SPEED;
-    const targetX = moving ? input.dx * targetSpeed : 0;
-    const targetY = moving ? input.dy * targetSpeed : 0;
-    const acceleration = moving ? ACCELERATION : DECELERATION;
-    player.vx = approach(player.vx, targetX, acceleration * dt);
-    player.vy = approach(player.vy, targetY, acceleration * dt);
-
-    if (wantsSprint) {
-      player.stamina = Math.max(0, player.stamina - STAMINA_DRAIN * dt);
-      player.lastStaminaUse = this.clock;
-      if (player.stamina <= 0) player.exhausted = true;
-    } else if (this.clock - player.lastStaminaUse > STAMINA_RECOVER_DELAY) {
-      player.stamina = Math.min(STAMINA_MAX, player.stamina + STAMINA_REGEN * dt);
-      if (player.stamina > 30) player.exhausted = false;
-    }
-    player.sprinting = wantsSprint && Math.hypot(player.vx, player.vy) > WALK_SPEED * 0.8;
-
-    if (!canMove) {
+    const canControl = Boolean(player.connected && !player.frozen && !player.eliminated && this.clock >= player.stunUntil);
+    stepPlayerPhysics(player, this.map, player.input, dt, {
+      sprintEnabled: this.options.sprintEnabled,
+      clock: this.clock,
+      canControl
+    });
+    if (!canControl) {
       player.vx = 0;
-      player.vy = 0;
+      player.sprinting = false;
     }
-
-    this.moveWithCollision(player, player.vx * dt, player.vy * dt);
-    const speed = Math.hypot(player.vx, player.vy);
-    if (speed > 8) {
-      player.dirX = player.vx / speed;
-      player.dirY = player.vy / speed;
-    }
-  }
-
-  moveWithCollision(player, dx, dy) {
-    if (dx !== 0) {
-      const oldX = player.x;
-      player.x += dx;
-      if (this.map.walls.some((rect) => circleRectOverlap(player.x, player.y, player.radius, rect))) {
-        player.x = oldX;
-        player.vx = 0;
-      }
-    }
-    if (dy !== 0) {
-      const oldY = player.y;
-      player.y += dy;
-      if (this.map.walls.some((rect) => circleRectOverlap(player.x, player.y, player.radius, rect))) {
-        player.y = oldY;
-        player.vy = 0;
-      }
-    }
-    player.x = clamp(player.x, player.radius, this.map.width - player.radius);
-    player.y = clamp(player.y, player.radius, this.map.height - player.radius);
+    player.x = clamp(player.x, PLAYER_HALF_WIDTH, this.map.width - PLAYER_HALF_WIDTH);
   }
 
   updateAnimations() {
@@ -308,10 +238,12 @@ export class MatchEngine {
       else if (player.frozen) player.animation = 'frozen';
       else if (this.clock < player.taggedUntil) player.animation = 'tagged';
       else if (this.clock < player.taggingUntil) player.animation = 'tagging';
+      else if (!player.grounded && player.vy < -60) player.animation = 'jumping';
+      else if (!player.grounded) player.animation = 'falling';
       else {
-        const speed = Math.hypot(player.vx, player.vy);
+        const speed = Math.abs(player.vx);
         if (player.sprinting && speed > 120) player.animation = 'sprinting';
-        else if (speed > WALK_SPEED * 0.9) player.animation = 'running';
+        else if (speed > 150) player.animation = 'running';
         else if (speed > 20) player.animation = 'walking';
         else player.animation = 'idle';
       }
@@ -335,7 +267,7 @@ export class MatchEngine {
     if (!player) return;
     player.connected = false;
     player.eliminated = true;
-    player.input = { dx: 0, dy: 0, sprint: false };
+    player.input = { dx: 0, dy: 0, sprint: false, jump: false };
     player.vx = 0;
     player.vy = 0;
     player.isIt = false;
@@ -353,7 +285,7 @@ export class MatchEngine {
     if (!player) return;
     player.connected = connected;
     if (!connected) {
-      player.input = { dx: 0, dy: 0, sprint: false };
+      player.input = { dx: 0, dy: 0, sprint: false, jump: false };
       player.vx = 0;
       player.vy = 0;
       this.addEvent({ type: 'disconnect', playerId, playerName: player.name, message: `${player.name} lost connection` });
@@ -369,7 +301,7 @@ export class MatchEngine {
     this.countdown = 0;
     const winnerSet = new Set(this.winnerIds);
     for (const player of this.players) {
-      player.input = { dx: 0, dy: 0, sprint: false };
+      player.input = { dx: 0, dy: 0, sprint: false, jump: false };
       player.vx = 0;
       player.vy = 0;
     }
@@ -441,6 +373,8 @@ export class MatchEngine {
         vy: Number(player.vy.toFixed(2)),
         dirX: Number(player.dirX.toFixed(3)),
         dirY: Number(player.dirY.toFixed(3)),
+        grounded: player.grounded,
+        exhausted: player.exhausted,
         animation: player.animation,
         isIt: player.isIt,
         isSeeker: player.isSeeker,

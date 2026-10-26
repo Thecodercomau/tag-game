@@ -10,7 +10,8 @@ export class InputManager {
     this.onEsc = onEsc;
     this.onBlur = onBlur;
     this.down = new Set();
-    this.touch = { x: 0, y: 0, sprint: false };
+    this.touch = { x: 0, sprint: false, jump: false };
+    this.jumpPressedAt = -1000;
     this.enabled = true;
     this.captured = [...new Set(Object.values(this.bindings).flat().map((code) => code))];
     this.scene.input.keyboard?.addCapture([...this.captured, 'Tab', 'Escape']);
@@ -43,6 +44,7 @@ export class InputManager {
     if (!this.enabled) return;
     this.down.add(code);
     if (event.repeat) return;
+    if (this.matches('jump', code)) this.jumpPressedAt = performance.now();
     if (this.matches('tag', code)) this.onTag?.();
     if (this.matches('interact', code)) this.onInteract?.();
   }
@@ -59,47 +61,48 @@ export class InputManager {
   handleBlur() {
     this.down.clear();
     this.touch.x = 0;
-    this.touch.y = 0;
     this.touch.sprint = false;
+    this.touch.jump = false;
+    this.jumpPressedAt = -1000;
     this.onScoreboard?.(false);
     this.onBlur?.();
   }
 
-  setTouchVector(x, y) {
+  setTouchVector(x) {
     this.touch.x = Math.max(-1, Math.min(1, x));
-    this.touch.y = Math.max(-1, Math.min(1, y));
   }
 
   setTouchSprint(active) {
     this.touch.sprint = Boolean(active);
   }
 
+  setTouchJump(active) {
+    const next = Boolean(active);
+    if (next && !this.touch.jump) this.jumpPressedAt = performance.now();
+    this.touch.jump = next;
+  }
+
   clear() {
     this.down.clear();
     this.touch.x = 0;
-    this.touch.y = 0;
     this.touch.sprint = false;
+    this.touch.jump = false;
+    this.jumpPressedAt = -1000;
   }
 
   getInput() {
-    if (!this.enabled) return { dx: 0, dy: 0, sprint: false };
+    if (!this.enabled) return { dx: 0, sprint: false, jump: false };
     let dx = 0;
-    let dy = 0;
     for (const code of this.down) {
       if (this.matches('left', code)) dx -= 1;
       if (this.matches('right', code)) dx += 1;
-      if (this.matches('up', code)) dy -= 1;
-      if (this.matches('down', code)) dy += 1;
     }
     dx += this.touch.x;
-    dy += this.touch.y;
-    const magnitude = Math.hypot(dx, dy);
-    if (magnitude > 1) {
-      dx /= magnitude;
-      dy /= magnitude;
-    }
+    dx = Math.max(-1, Math.min(1, dx));
     const sprint = [...this.down].some((code) => this.matches('sprint', code)) || this.touch.sprint;
-    return { dx, dy, sprint };
+    const heldJump = [...this.down].some((code) => this.matches('jump', code)) || this.touch.jump;
+    const jump = heldJump || performance.now() - this.jumpPressedAt < 100;
+    return { dx, sprint, jump };
   }
 
   destroy() {

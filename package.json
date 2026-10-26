@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "TAG - a real-time 2D multiplayer chase game with online, LAN, and AI play.",
+  "description": "TAG - a real-time side-view multiplayer platformer chase game with online, LAN, and AI play.",
   "engines": {
     "node": ">=20.19"
   },
