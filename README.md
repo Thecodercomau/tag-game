@@ -36,9 +36,11 @@ LAN addresses:
 
 ## Free public deployment
 
-The repository includes a multi-stage Dockerfile, Caddy reverse proxy, and Docker Compose stack for an always-on Oracle Cloud Always Free VM with automatic HTTPS.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Thecodercomau/tag-game)
 
-See [deploy/oracle-cloud.md](deploy/oracle-cloud.md) for the full setup, firewall, Docker, update, and troubleshooting steps.
+Click the button, sign in to Render, authorize the public GitHub repository, and apply the included `render.yaml` Blueprint. Render builds the client and server, runs health checks, and provides an HTTPS URL. The free instance sleeps after 15 minutes idle and takes about a minute to wake.
+
+For an always-on free server, the repository also includes a multi-stage Dockerfile, Caddy reverse proxy, and Docker Compose stack for Oracle Cloud Always Free. See [deploy/oracle-cloud.md](deploy/oracle-cloud.md) for firewall, Docker, update, and troubleshooting steps.
 
 ## Controls
 
