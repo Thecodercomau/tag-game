@@ -34,6 +34,12 @@ LAN addresses:
   http://192.168.x.x:3000  (en0)
 ```
 
+## Free public deployment
+
+The repository includes a multi-stage Dockerfile, Caddy reverse proxy, and Docker Compose stack for an always-on Oracle Cloud Always Free VM with automatic HTTPS.
+
+See [deploy/oracle-cloud.md](deploy/oracle-cloud.md) for the full setup, firewall, Docker, update, and troubleshooting steps.
+
 ## Controls
 
 | Action | Default keys |
@@ -125,7 +131,8 @@ client/             Phaser scenes, UI, networking, audio, procedural art, CSS
 client/public/audio Generated WAV assets
 server/             Express/Socket.IO server, lobbies, matches, validation
 shared/             Match engine, mode rules, maps, schemas, constants
-scripts/            Audio generator
+scripts/            Audio and LAN smoke tests
+deploy/             Oracle Cloud deployment guide and Caddy config
 tests/              Unit, integration, and Playwright tests
 ```
 
