@@ -690,7 +690,7 @@ export class App {
             </aside>
           </div>
           <footer class="menu-footer">
-            <span>Protocol 1 · Built for browsers, LAN and questionable rematches.</span>
+            <span>Protocol 2 · Built for browsers, LAN and questionable rematches.</span>
             <span class="row" style="gap:16px">
               <button type="button" data-action="how">Rules</button>
               <button type="button" data-action="settings">Settings</button>
