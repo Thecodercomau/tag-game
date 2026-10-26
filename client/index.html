@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#0a0d1f" />
+    <meta name="description" content="TAG is a fast, multiplayer chase game for the browser. Play online, on your LAN, or against bots." />
+    <title>TAG — playground rules, anywhere</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1026'/%3E%3Cpath d='M13 20h38v10H36v23H26V30H13z' fill='%23ff6b81'/%3E%3Ccircle cx='48' cy='46' r='7' fill='%2345f6e0'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="game-root" aria-hidden="true"></div>
+      <div id="game-shade" aria-hidden="true"></div>
+      <div id="ui-root">
+        <div id="screen-root"></div>
+        <div id="hud-root"></div>
+        <div id="overlay-root"></div>
+        <div id="toast-root" class="toast-stack" role="status" aria-live="polite"></div>
+        <div id="modal-root"></div>
+      </div>
+      <div id="boot-screen" class="boot-screen">
+        <div class="boot-mark" aria-hidden="true">
+          <span>T</span><span>A</span><span>G</span>
+        </div>
+        <div class="boot-bar"><i></i></div>
+        <p>Warming up the playground…</p>
+      </div>
+    </div>
+    <noscript>
+      <div class="noscript">TAG needs JavaScript enabled to run.</div>
+    </noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
