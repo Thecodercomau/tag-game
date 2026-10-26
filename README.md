@@ -36,9 +36,17 @@ LAN addresses:
 
 ## Free public deployment
 
-The repository includes a multi-stage Dockerfile, Caddy reverse proxy, Docker Compose stack, and a one-command installer for an always-on Oracle Cloud Always Free VM with automatic HTTPS.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Thecodercomau/tag-game)
 
-See [deploy/oracle-cloud.md](deploy/oracle-cloud.md) for VM creation, firewall, deployment, updates, and troubleshooting.
+Render's Free plan does not require a payment method. The included `render.yaml` Blueprint installs dependencies, builds the client, runs the Express/Socket.IO server, and enables HTTPS.
+
+1. Click **Deploy to Render** and sign in with GitHub.
+2. Authorize the public repository and apply the `tag-game` Blueprint.
+3. Open the `onrender.com` URL shown in the dashboard after the first deploy finishes.
+
+A free web service sleeps after 15 minutes without traffic and takes about a minute to wake. To keep one free instance warm, schedule a request to `/api/health` every 10 minutes; the 750 monthly instance hours cover one always-on service. Use an external scheduler such as `cron-job.org` so the wake-up does not depend on a visitor.
+
+For an always-on VM instead, the repository also includes a multi-stage Dockerfile, Caddy reverse proxy, Docker Compose stack, and an Oracle Cloud installer. Oracle requires payment-card verification, so use [deploy/oracle-cloud.md](deploy/oracle-cloud.md) only if that is acceptable.
 
 ## Controls
 
@@ -132,7 +140,8 @@ client/public/audio Generated WAV assets
 server/             Express/Socket.IO server, lobbies, matches, validation
 shared/             Match engine, mode rules, maps, schemas, constants
 scripts/            Audio and LAN smoke tests
-deploy/             Oracle Cloud deployment guide and Caddy config
+deploy/             Oracle Cloud fallback guide and Caddy config
+render.yaml         Render free deployment Blueprint
 tests/              Unit, integration, and Playwright tests
 ```
 
