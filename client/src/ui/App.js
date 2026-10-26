@@ -283,6 +283,7 @@ export class App {
 
   handleNetworkConnection(state) {
     const wasReady = this.connection.state === 'ready';
+    const previousState = this.connection.state;
     if (state.state === 'ready') {
       this.connection = {
         state: 'ready',
@@ -311,6 +312,9 @@ export class App {
       this.connection = { state: 'connecting', quality: 'ok', rtt: null, message: '' };
     }
     this.updateConnectionChrome();
+    if (this.currentScreen === 'online' && previousState !== this.connection.state && !this.busy) {
+      this.showScreen('online', { preserve: true });
+    }
   }
 
   handleWelcome(payload) {
