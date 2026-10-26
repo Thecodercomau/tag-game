@@ -104,14 +104,17 @@ function badge(text, tone = '') {
 }
 
 export class App {
-  constructor(game) {
-    this.game = game;
+  constructor() {
+    this.game = null;
+    this.gamePromise = null;
+    this.gameStartToken = 0;
     this.screenRoot = document.getElementById('screen-root');
     this.hudRoot = document.getElementById('hud-root');
     this.overlayRoot = document.getElementById('overlay-root');
     this.toastRoot = document.getElementById('toast-root');
     this.modalRoot = document.getElementById('modal-root');
     this.bootScreen = document.getElementById('boot-screen');
+    this.themeMeta = document.querySelector('meta[name="theme-color"]');
 
     this.audio = new AudioManager(store.settings);
     this.network = new NetworkClient({ getProfile: () => store.profile });
@@ -148,6 +151,7 @@ export class App {
     this.lastHud = null;
     this.sceneApi = null;
     this.scoreboardVisible = false;
+    this.scoreboardFocus = null;
     this.lastCountdownValue = null;
     this.lastPhase = null;
     this.flashTimer = null;
@@ -179,6 +183,31 @@ export class App {
   hideBoot() {
     const delay = Math.max(0, 650 - performance.now());
     setTimeout(() => this.bootScreen?.classList.add('is-hidden'), delay);
+  }
+
+  ensureGame() {
+    if (!this.gamePromise) {
+      this.gamePromise = import('../game/bootGame.js')
+        .then(({ createGame }) => {
+          this.game = createGame();
+          return this.game;
+        })
+        .catch((error) => {
+          this.gamePromise = null;
+          throw error;
+        });
+    }
+    return this.gamePromise;
+  }
+
+  setThemeColor(dark) {
+    if (this.themeMeta) this.themeMeta.content = dark ? '#060918' : '#f5efe2';
+  }
+
+  syncThemeColor() {
+    const dark = document.body.classList.contains('in-game')
+      && !document.body.classList.contains('pause-settings');
+    this.setThemeColor(dark);
   }
 
   applySettings() {
@@ -567,6 +596,7 @@ export class App {
     if (!options.preserve) this.screenRoot.scrollTop = 0;
     if (name === 'lobby') this.focusLobby(options);
     if (name === 'customize') this.startPreviewLoop();
+    this.syncThemeColor();
     this.updateConnectionChrome();
   }
 
@@ -861,6 +891,7 @@ export class App {
                   </div>
                   <div class="setting-row">
                     <div class="setting-copy"><b>Round length</b><span>Countdown adds three seconds before play.</span></div>
+                    <label class="visually-hidden" for="practice-duration">Round length</label>
                     <select class="select" style="width:130px" id="practice-duration" data-practice-duration>
                       ${[90, 120, 180, 300].map((seconds) => `<option value="${seconds}" ${seconds === this.practiceDuration ? 'selected' : ''}>${formatDuration(seconds)}</option>`).join('')}
                     </select>
@@ -1907,6 +1938,47 @@ export class App {
     this.toast({ title: 'Key bound', message: `${CONTROL_LABELS[binding.action]} is now ${keyLabel(code)}.`, tone: 'success', duration: 2400 });
   }
 
+  activeDialog() {
+    return this.modalRoot.querySelector('[role="dialog"]')
+      || this.overlayRoot.querySelector('[role="dialog"]');
+  }
+
+  focusableElements(container) {
+    if (!container) return [];
+    return [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => !element.disabled && element.getClientRects().length > 0);
+  }
+
+  trapDialogFocus(event) {
+    if (event.key !== 'Tab') return false;
+    const dialog = this.activeDialog();
+    if (!dialog) return false;
+    const items = this.focusableElements(dialog);
+    if (!items.length) {
+      event.preventDefault();
+      return true;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!dialog.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return true;
+    }
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+      return true;
+    }
+    if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+      return true;
+    }
+    return false;
+  }
+
   handleGlobalKey(event) {
     if (this.listenBinding) {
       event.preventDefault();
@@ -1919,6 +1991,7 @@ export class App {
       }
       return;
     }
+    if (this.trapDialogFocus(event)) return;
     if (event.key === 'Escape' && !this.inGame) {
       if (this.modalCallback) {
         this.closeModal();
@@ -1954,7 +2027,8 @@ export class App {
     });
   }
 
-  beginGame(data) {
+  async beginGame(data) {
+    const startToken = ++this.gameStartToken;
     this.inGame = true;
     this.paused = false;
     this.scoreboardVisible = false;
@@ -1966,6 +2040,7 @@ export class App {
     this.lastCountdownValue = null;
     this.sprintSampleAt = performance.now();
     document.body.classList.add('in-game');
+    this.syncThemeColor();
     this.screenRoot.innerHTML = '';
     this.overlayRoot.innerHTML = '';
     this.modalRoot.innerHTML = '';
@@ -1984,8 +2059,20 @@ export class App {
         ? { initialState: data.initialState }
         : { mapId: data.mapId, practice: data.practice })
     };
-    this.game.scene.stop('GameScene');
-    this.game.scene.start('GameScene', sceneData);
+    let game;
+    try {
+      game = await this.ensureGame();
+    } catch (error) {
+      if (startToken !== this.gameStartToken) return;
+      console.error('Unable to load the game engine.', error);
+      this.stopGame({ countAsLeave: false });
+      this.showScreen('menu');
+      this.toast({ title: 'Game unavailable', message: 'The game engine could not be loaded. Try again.', tone: 'error', duration: 5000 });
+      return;
+    }
+    if (!this.inGame || startToken !== this.gameStartToken) return;
+    game.scene.stop('GameScene');
+    game.scene.start('GameScene', sceneData);
   }
 
   gameCallbacks() {
@@ -2008,7 +2095,8 @@ export class App {
       store.flushSprint();
     }
     this.sprintSampleAt = null;
-    if (this.inGame) this.game.scene.stop('GameScene');
+    this.gameStartToken += 1;
+    if (this.inGame) this.game?.scene.stop('GameScene');
     this.inGame = false;
     this.paused = false;
     this.resultsActive = false;
@@ -2018,7 +2106,9 @@ export class App {
     this.sceneApi = null;
     this.lastHud = null;
     this.scoreboardVisible = false;
+    this.scoreboardFocus = null;
     document.body.classList.remove('in-game', 'pause-settings');
+    this.syncThemeColor();
     this.screenRoot.classList.remove('in-game-settings');
     this.pausedSettings = false;
     this.hudRoot.innerHTML = '';
@@ -2051,6 +2141,7 @@ export class App {
           <div class="hud-right">
             <div class="hud-minimap"><canvas id="hud-minimap" width="136" height="96" aria-label="Minimap"></canvas></div>
             <div class="ping-pill" id="hud-ping">--</div>
+            <button class="hud-btn small hud-score-top" type="button" data-action="game-scoreboard" aria-label="Scoreboard">SC</button>
             <button class="hud-btn small" type="button" data-action="game-pause" aria-label="Pause">II</button>
           </div>
         </div>
@@ -2080,7 +2171,7 @@ export class App {
           </div>
         </div>
         <div class="touch-controls">
-          <div class="joystick" id="touch-joystick" aria-label="Movement joystick"><span class="joystick-ring"></span><span class="joystick-knob" id="joystick-knob"></span></div>
+          <div class="joystick" id="touch-joystick" role="group" aria-label="Movement joystick"><span class="joystick-ring"></span><span class="joystick-knob" id="joystick-knob"></span></div>
           <div class="touch-buttons">
             <button class="touch-btn interact hidden" type="button" data-touch="interact" id="touch-interact">THAW</button>
             <button class="touch-btn sprint" type="button" data-touch="sprint">RUN</button>
@@ -2090,8 +2181,8 @@ export class App {
         </div>
       </div>
       <div class="scoreboard-overlay hidden" id="scoreboard-overlay">
-        <div class="scoreboard-panel">
-          <div class="panel-head"><h2>Live scoreboard</h2><button class="btn small ghost" type="button" data-action="game-scoreboard-close">Close</button></div>
+        <div class="scoreboard-panel" role="dialog" aria-modal="true" aria-labelledby="scoreboard-title">
+          <div class="panel-head"><h2 id="scoreboard-title">Live scoreboard</h2><button class="btn small ghost" type="button" data-action="game-scoreboard-close">Close</button></div>
           <div id="scoreboard-body"></div>
         </div>
       </div>
@@ -2254,11 +2345,22 @@ export class App {
 
   toggleScoreboard(visible) {
     if (!this.inGame || this.resultsActive) return;
-    this.scoreboardVisible = Boolean(visible);
+    const nextVisible = Boolean(visible);
+    if (nextVisible && !this.scoreboardVisible) this.scoreboardFocus = document.activeElement;
+    this.scoreboardVisible = nextVisible;
     const overlay = this.hudRoot.querySelector('#scoreboard-overlay');
     if (!overlay) return;
     overlay.classList.toggle('hidden', !this.scoreboardVisible);
-    if (this.scoreboardVisible && this.lastHud) this.renderScoreboard(this.lastHud);
+    if (this.scoreboardVisible) {
+      if (this.lastHud) this.renderScoreboard(this.lastHud);
+      requestAnimationFrame(() => {
+        if (this.scoreboardVisible) overlay.querySelector('[data-action="game-scoreboard-close"]')?.focus();
+      });
+    } else {
+      const previous = this.scoreboardFocus;
+      this.scoreboardFocus = null;
+      if (previous?.isConnected) previous.focus();
+    }
   }
 
   renderScoreboard(hud) {
@@ -2372,13 +2474,14 @@ export class App {
         this.currentScreen = null;
       }
       this.overlayRoot.innerHTML = '';
+      this.syncThemeColor();
       return;
     }
     const online = Boolean(this.currentMatchId) && !this.lastHud?.practice;
     this.overlayRoot.innerHTML = `
       <div class="pause-overlay">
-        <div class="pause-card">
-          <h2>Paused</h2>
+        <div class="pause-card" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+          <h2 id="pause-title">Paused</h2>
           <p>${online ? 'Online matches keep running on the server. Your runner will stop sending movement until you resume.' : 'The practice clock is stopped while you are here.'}</p>
           <div class="pause-actions">
             <button class="btn primary" type="button" data-action="pause-resume">Resume</button>
@@ -2400,6 +2503,7 @@ export class App {
     this.currentScreen = null;
     this.overlayRoot.innerHTML = '';
     this.togglePause(true);
+    this.syncThemeColor();
   }
 
   leaveGame() {
@@ -2459,7 +2563,7 @@ export class App {
     const standings = results.standings || [];
     this.overlayRoot.innerHTML = `
       <div class="results-overlay">
-        <div class="results-shell">
+        <div class="results-shell" role="dialog" aria-modal="true" aria-labelledby="results-title">
           <div class="row between results-bar">
             <div class="row">${badge(practice ? 'Practice' : 'Online match', practice ? 'lan' : 'live')}<span class="tiny">${escapeHtml(mode.name)} · ${escapeHtml(map.name)}</span></div>
             <button class="btn small ghost" type="button" data-action="results-menu">Main menu</button>
@@ -2467,7 +2571,7 @@ export class App {
           <div class="results-layout">
             <section class="panel result-hero">
               <div class="result-tag" aria-hidden="true">${won ? 'WIN' : isDraw ? 'TIE' : 'TAG'}</div>
-              <h2>${escapeHtml(results.title || (won ? 'Victory' : 'Match complete'))}</h2>
+              <h2 id="results-title">${escapeHtml(results.title || (won ? 'Victory' : 'Match complete'))}</h2>
               <p>${escapeHtml(detail)}</p>
               <div class="result-stats">
                 <div class="result-stat"><b>${local?.tags || 0}</b><span>Tags</span></div>
@@ -2506,7 +2610,8 @@ export class App {
         </div>
       </div>
     `;
-    this.overlayRoot.querySelector('[data-action="results-lobby"]')?.focus();
+    const resultFocus = this.overlayRoot.querySelector('[data-action="results-lobby"], [data-action="results-again"], [data-action="results-menu"]');
+    resultFocus?.focus();
   }
 
   closeResults() {

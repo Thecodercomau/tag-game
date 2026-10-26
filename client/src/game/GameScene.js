@@ -786,7 +786,7 @@ export class GameScene extends Phaser.Scene {
   setPaused(value) {
     if (this.destroyed) return;
     this.paused = Boolean(value);
-    if (this.controls) this.controls.enabled = !this.paused;
+    this.controls?.setEnabled(!this.paused);
     if (this.paused) {
       this.controls?.clear();
       if (this.online) {

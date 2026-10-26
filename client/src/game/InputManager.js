@@ -33,6 +33,7 @@ export class InputManager {
       this.onEsc?.();
       return;
     }
+    if (!this.enabled) return;
     if (this.matches('scoreboard', code)) {
       event.preventDefault?.();
       if (!event.repeat) this.onScoreboard?.(true);
@@ -41,7 +42,6 @@ export class InputManager {
     if (this.captured.includes(code) || ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
       event.preventDefault?.();
     }
-    if (!this.enabled) return;
     this.down.add(code);
     if (event.repeat) return;
     if (this.matches('jump', code)) this.jumpPressedAt = performance.now();
@@ -66,6 +66,22 @@ export class InputManager {
     this.jumpPressedAt = -1000;
     this.onScoreboard?.(false);
     this.onBlur?.();
+  }
+
+  setEnabled(value) {
+    const next = Boolean(value);
+    if (next === this.enabled) return;
+    this.enabled = next;
+    const captures = [...this.captured, 'Tab', 'Escape'];
+    if (next) {
+      this.scene.input.keyboard?.addCapture(captures);
+    } else {
+      this.down.clear();
+      this.touch.x = 0;
+      this.touch.sprint = false;
+      this.touch.jump = false;
+      this.scene.input.keyboard?.removeCapture(captures);
+    }
   }
 
   setTouchVector(x) {
@@ -106,6 +122,7 @@ export class InputManager {
   }
 
   destroy() {
+    this.scene.input.keyboard?.removeCapture([...this.captured, 'Tab', 'Escape']);
     this.scene.input.keyboard?.off('keydown', this.handleKeyDown);
     this.scene.input.keyboard?.off('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleBlur);

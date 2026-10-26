@@ -35,6 +35,12 @@ test('customizes a runner and handles pause-menu settings in practice', async ({
 
   await page.click('[data-action="game-pause"]');
   await expect(page.locator('#overlay-root')).toContainText('Paused');
+  await expect(page.locator('.pause-card')).toHaveAttribute('role', 'dialog');
+  await expect(page.locator('[data-action="pause-resume"]')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('[data-action="pause-leave"]')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('[data-action="pause-resume"]')).toBeFocused();
   await page.click('.pause-card [data-action="settings"]');
   await expect(page.locator('body')).toHaveClass(/pause-settings/);
   await expect(page.locator('#screen-root')).toBeVisible();
@@ -176,11 +182,18 @@ test.describe('mobile layout', () => {
 
     await page.click('[data-action="practice"]');
     await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).resolves.toBe(true);
+    await expect(page.locator('#practice-duration')).toHaveAccessibleName('Round length');
     await page.click('[data-action="practice-start"]');
     await expect(page.locator('body')).toHaveClass(/in-game/);
     await expect(page.locator('[data-touch="tag"]')).toBeVisible();
     await expect(page.locator('[data-touch="sprint"]')).toBeVisible();
     await expect(page.locator('[data-touch="jump"]')).toBeVisible();
+    await expect(page.locator('#hud-stamina')).toBeVisible();
+    await expect(page.locator('.hud-score-top')).toBeVisible();
+    await page.locator('.hud-score-top').tap();
+    await expect(page.locator('#scoreboard-overlay')).toBeVisible();
+    await page.locator('[data-action="game-scoreboard-close"]').tap();
+    await expect(page.locator('#scoreboard-overlay')).toBeHidden();
     await page.locator('[data-touch="jump"]').tap();
     await page.waitForTimeout(350);
     await expect(page.locator('[data-touch="interact"]')).toHaveClass(/hidden/);
