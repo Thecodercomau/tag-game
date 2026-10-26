@@ -29,11 +29,11 @@ export class InputManager {
 
   handleKeyDown(event) {
     const code = event.code;
+    if (!this.enabled) return;
     if (code === 'Escape') {
       this.onEsc?.();
       return;
     }
-    if (!this.enabled) return;
     if (this.matches('scoreboard', code)) {
       event.preventDefault?.();
       if (!event.repeat) this.onScoreboard?.(true);

@@ -41,6 +41,11 @@ test('customizes a runner and handles pause-menu settings in practice', async ({
   await expect(page.locator('[data-action="pause-leave"]')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator('[data-action="pause-resume"]')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#overlay-root')).toBeEmpty();
+  await page.click('[data-action="game-pause"]');
+  await expect(page.locator('#overlay-root')).toContainText('Paused');
   await page.click('.pause-card [data-action="settings"]');
   await expect(page.locator('body')).toHaveClass(/pause-settings/);
   await expect(page.locator('#screen-root')).toBeVisible();

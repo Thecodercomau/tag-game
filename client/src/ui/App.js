@@ -1992,6 +1992,11 @@ export class App {
       return;
     }
     if (this.trapDialogFocus(event)) return;
+    if (event.key === 'Escape' && this.inGame && this.paused && !this.pausedSettings && !this.resultsActive) {
+      event.preventDefault();
+      this.togglePause(false);
+      return;
+    }
     if (event.key === 'Escape' && !this.inGame) {
       if (this.modalCallback) {
         this.closeModal();
