@@ -21,24 +21,13 @@ In the instance's VCN, open the public subnet security list and add ingress rule
 | `0.0.0.0/0` | TCP | `443` |
 | `0.0.0.0/0` | UDP | `443` (optional HTTP/3) |
 
-Restrict SSH port `22` to your own IP when possible.
+Restrict SSH port `22` to your own IP when possible. The installer opens ports 80/443 in the VM's host firewall.
 
-Oracle's Ubuntu images also have host-level iptables rules. SSH into the VM:
+SSH into the VM:
 
 ```bash
 chmod 600 ~/Downloads/ssh-key.key
 ssh -i ~/Downloads/ssh-key.key ubuntu@YOUR_PUBLIC_IP
-```
-
-Then open the ports before the `REJECT` rule and persist them:
-
-```bash
-sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
-sudo iptables -I INPUT -p udp --dport 443 -j ACCEPT
-sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent
-sudo netfilter-persistent save
 ```
 
 ## 3. Deploy with the installer
@@ -61,9 +50,10 @@ The first build takes a few minutes. Check it:
 
 ```bash
 cd /opt/tag-game
-docker compose ps
-docker compose logs --tail=100 app caddy
-curl -fsS "https://$(grep '^DOMAIN=' .env | cut -d= -f2)/api/health"
+DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2)
+sudo docker compose ps
+sudo docker compose logs --tail=100 app caddy
+curl -fsS "https://$DOMAIN/api/health"
 ```
 
 Open `https://$DOMAIN` in a browser.
@@ -86,10 +76,10 @@ Caddy certificates and configuration are stored in Docker volumes. Containers ha
 
 ```bash
 cd /opt/tag-game
-docker compose ps
-docker compose logs -f app
-docker compose logs -f caddy
-docker compose restart app
+sudo docker compose ps
+sudo docker compose logs -f app
+sudo docker compose logs -f caddy
+sudo docker compose restart app
 ```
 
 Lobbies and matches are in memory. Restarting the app disconnects active players and clears rooms, which is expected.
@@ -98,6 +88,6 @@ Lobbies and matches are in memory. Restarting the app disconnects active players
 
 - **Connection timed out:** open ports at both the OCI security-list level and the VM iptables level.
 - **Caddy certificate failure:** confirm `http://$DOMAIN` resolves to the VM public IP and port 80 is reachable. Inspect `docker compose logs caddy`.
-- **Site loads but online play fails:** set `ALLOWED_ORIGINS` to the exact HTTPS origin, then run `docker compose up -d`.
+- **Site loads but online play fails:** set `ALLOWED_ORIGINS` to the exact HTTPS origin, then run `sudo docker compose up -d`.
 - **Instance out of capacity:** try a different availability domain, create a 1 OCPU / 6 GB A1 instance, or fall back to the AMD micro shape.
-- **Public IP changed:** update `DOMAIN`, `ALLOWED_ORIGINS`, and `PUBLIC_URL` in `.env`, then rerun `docker compose up -d`. A reserved public IP avoids this.
+- **Public IP changed:** rerun the installer with `sudo RESET_DOMAIN=1 bash /opt/tag-game/deploy/install-oracle.sh`, or update `DOMAIN`, `ALLOWED_ORIGINS`, and `PUBLIC_URL` in `.env` and run `sudo docker compose up -d`. A reserved public IP avoids this.
