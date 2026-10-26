@@ -48,7 +48,7 @@ export async function createTagServer(options = {}) {
   const origins = options.origins ?? parseOrigins(process.env.ALLOWED_ORIGINS || '*');
   const lanOnly = options.lanOnly ?? boolEnv(process.env.LAN_ONLY, false);
   const maxLobbies = options.maxLobbies ?? Number(process.env.MAX_LOBBIES || 100);
-  const publicUrl = options.publicUrl ?? process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL ?? '';
+  const publicUrl = options.publicUrl ?? process.env.PUBLIC_URL ?? '';
   const corsOptions = {
     origin: origins === '*' ? true : origins,
     methods: ['GET', 'POST'],

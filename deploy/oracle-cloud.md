@@ -41,62 +41,51 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent
 sudo netfilter-persistent save
 ```
 
-## 3. Install Docker
+## 3. Deploy with the installer
+
+Run the installer as root. It installs Docker and Caddy dependencies, opens ports 80/443 in the host firewall, clones the repository to `/opt/tag-game`, creates the HTTPS configuration, and starts the containers:
 
 ```bash
-sudo apt install -y git docker.io docker-compose-v2
-sudo systemctl enable --now docker
-sudo usermod -aG docker "$USER"
+curl -fsSL https://raw.githubusercontent.com/Thecodercomau/tag-game/main/deploy/install-oracle.sh -o install-tag.sh
+less install-tag.sh
+sudo bash install-tag.sh
 ```
 
-Disconnect and reconnect over SSH so the Docker group applies.
+Alternatively, clone the repository and run `sudo bash deploy/install-oracle.sh` from the checkout.
 
-## 4. Deploy the game
-
-```bash
-sudo mkdir -p /opt/tag-game
-sudo chown "$USER:$USER" /opt/tag-game
-git clone https://github.com/Thecodercomau/tag-game.git /opt/tag-game
-cd /opt/tag-game
-
-PUBLIC_IP=$(curl -fsS https://ifconfig.me)
-DOMAIN="$PUBLIC_IP.sslip.io"
-cat > .env <<ENV
-DOMAIN=$DOMAIN
-ALLOWED_ORIGINS=https://$DOMAIN
-PUBLIC_URL=https://$DOMAIN
-LAN_ONLY=false
-MAX_LOBBIES=100
-ENV
-
-docker compose up -d --build
-```
+Installation takes a few minutes. The installer prints the live URL when the health check passes.
 
 `sslip.io` is a free wildcard DNS service. `YOUR_PUBLIC_IP.sslip.io` resolves to the VM, letting Caddy obtain a trusted Let's Encrypt certificate without buying a domain. Replace `DOMAIN` with your own domain later if you have one.
 
 The first build takes a few minutes. Check it:
 
 ```bash
+cd /opt/tag-game
 docker compose ps
 docker compose logs --tail=100 app caddy
-curl -fsS "https://$DOMAIN/api/health"
+curl -fsS "https://$(grep '^DOMAIN=' .env | cut -d= -f2)/api/health"
 ```
 
 Open `https://$DOMAIN` in a browser.
 
-## 5. Updates
+## 4. Updates
 
 ```bash
-cd /opt/tag-game
-git pull
-docker compose up -d --build
+sudo bash /opt/tag-game/deploy/install-oracle.sh
+```
+
+To regenerate `.env` after a public IP change:
+
+```bash
+sudo RESET_DOMAIN=1 bash /opt/tag-game/deploy/install-oracle.sh
 ```
 
 Caddy certificates and configuration are stored in Docker volumes. Containers have `restart: unless-stopped`, so the game comes back after a VM reboot.
 
-## 6. Operations
+## 5. Operations
 
 ```bash
+cd /opt/tag-game
 docker compose ps
 docker compose logs -f app
 docker compose logs -f caddy
